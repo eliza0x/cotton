@@ -1,7 +1,12 @@
 {
 {-# LANGUAGE FlexibleContexts, OverloadedStrings #-}
 
-module Cotton.Lexer where
+module Cotton.Lexer (
+    lexer,
+    AlexPosn(..),
+    Token(..),
+    TokenData(..),
+    ) where
 
 import Control.Monad.State
 import Data.Text (Text(..))
@@ -20,67 +25,62 @@ $labelchar   = [A-Za-z0-9\_]
 tokens :-
     $white+                             ;
     "#".*                               ;
-    "def"                               { tok (\p _ -> Def        p )      }
-    "if"                                { tok (\p _ -> If         p )      }
-    "else"                              { tok (\p _ -> Else       p )      }
-    "<-"                                { tok (\p _ -> LArrow     p )      }
-    "->"                                { tok (\p _ -> RArrow     p )      }
-    "`"                                 { tok (\p _ -> Backquort  p )      }
-    """                                 { tok (\p _ -> Quort      p )      }
-    "'"                                 { tok (\p _ -> Apostrophe p )      }
-    "("                                 { tok (\p _ -> LParen     p )      }
-    ")"                                 { tok (\p _ -> RParen     p )      }
-    "{"                                 { tok (\p _ -> LBrace     p )      }
-    "}"                                 { tok (\p _ -> RBrace     p )      }
-    "["                                 { tok (\p _ -> LBracket   p )      }
-    "]"                                 { tok (\p _ -> RBracket   p )      }
-    ":"                                 { tok (\p _ -> Colon      p )      }
-    ";"                                 { tok (\p _ -> Semicolon  p )      }
-    $digit+                             { tok (\p s -> Num  (read s  , p)) }
-    $opchar+                            { tok (\p s -> Op   (T.pack s, p)) }
-    $lower [$alpha \' \_ \?]* \!?       { tok (\p s -> Var  (T.pack s, p)) }
-    $upper [$alpha]*                    { tok (\p s -> Type (T.pack s, p)) }
+    "def"                               { tok (\p _ -> Def        (Pos p) )       }
+    "if"                                { tok (\p _ -> If         (Pos p) )       }
+    "else"                              { tok (\p _ -> Else       (Pos p) )       }
+    "<-"                                { tok (\p _ -> LArrow     (Pos p) )       }
+    "->"                                { tok (\p _ -> RArrow     (Pos p) )       }
+    "`"                                 { tok (\p _ -> Backquort  (Pos p) )       }
+    "'"                                 { tok (\p _ -> Apostrophe (Pos p) )       }
+    "("                                 { tok (\p _ -> LParen     (Pos p) )       }
+    ")"                                 { tok (\p _ -> RParen     (Pos p) )       }
+    "{"                                 { tok (\p _ -> LBrace     (Pos p) )       }
+    "}"                                 { tok (\p _ -> RBrace     (Pos p) )       }
+    "["                                 { tok (\p _ -> LBracket   (Pos p) )       }
+    "]"                                 { tok (\p _ -> RBracket   (Pos p) )       }
+    ":"                                 { tok (\p _ -> Colon      (Pos p) )       }
+    ";"                                 { tok (\p _ -> Semicolon  (Pos p) )       }
+    """ $labelchar* """                 { tok (\p s -> Str (StrP (T.pack s) p))   }
+    $digit+                             { tok (\p s -> Num  (NumP (read s) p))    }
+    $opchar+                            { tok (\p s -> Op   (StrP (T.pack s) p))  }
+    $lower [$alpha \' \_ \?]* \!?       { tok (\p s -> Lower (StrP (T.pack s) p)) }
+    $upper [$alpha \' \_ \?]* \!?       { tok (\p s -> Upper (StrP (T.pack s) p)) }
 
 {
-addToken :: MonadState (Stock Token) m => Token -> m ()
-addToken token = modify' (\f -> f . (token:))
-
-data LexResult
-  = LexError AlexPosn
-  | LexSuccess
-  deriving (Eq, Show)
-
-type Stock a = [a] -> [a]
-
 tok f p s = f p s
 
--- | Token type, used to communicate between the lexer and parser
 data Token
-    = Def               AlexPosn
-    | If                AlexPosn
-    | Else              AlexPosn
-    | LArrow            AlexPosn
-    | RArrow            AlexPosn
-    | Equal             AlexPosn
-    | Backquort         AlexPosn
-    | Quort             AlexPosn
-    | Apostrophe        AlexPosn
-    | Semicolon         AlexPosn
-    | Colon             AlexPosn
-    | Comma             AlexPosn
-    | LParen            AlexPosn
-    | RParen            AlexPosn
-    | LBrace            AlexPosn
-    | RBrace            AlexPosn
-    | LBracket          AlexPosn
-    | RBracket          AlexPosn
-    | Num        (Int,  AlexPosn)
-    | Op         (Text, AlexPosn)
-    | Var        (Text, AlexPosn)
-    | Type       (Text, AlexPosn)
+    = Def               TokenData
+    | If                TokenData
+    | Else              TokenData
+    | LArrow            TokenData
+    | RArrow            TokenData
+    | Equal             TokenData
+    | Backquort         TokenData
+    | Quort             TokenData
+    | Apostrophe        TokenData
+    | Semicolon         TokenData
+    | Colon             TokenData
+    | Comma             TokenData
+    | LParen            TokenData
+    | RParen            TokenData
+    | LBrace            TokenData
+    | RBrace            TokenData
+    | LBracket          TokenData
+    | RBracket          TokenData
+    | Num               TokenData
+    | Op                TokenData
+    | Lower             TokenData
+    | Upper             TokenData
+    | Str               TokenData
     deriving (Eq, Show)
 
-opToEqual (Op ("=", p)) = Equal p
+data TokenData = Pos  {pos :: AlexPosn}
+               | NumP {num :: Int, pos :: AlexPosn}
+               | StrP {text :: Text, pos :: AlexPosn}
+               deriving (Show, Eq)
+
+opToEqual (Op (StrP "=" p)) = Equal (Pos p)
 opToEqual token         = token
 
 lexer :: String -> [Token]
