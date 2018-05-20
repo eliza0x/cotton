@@ -2,6 +2,7 @@ module Cotton where
 
 import Data.Text (Text(..))
 import qualified Data.Text as T
+import Control.Monad
 
 import Cotton.Parser
 import Cotton.Lexer
@@ -15,8 +16,7 @@ compile sourceCode = do
         Just token -> do
             putStrLn "\n==========\n"
             let st         = parser token
-            print st
+            mapM_ print st
 
-            putStrLn "\n==========\n"
             return undefined
 

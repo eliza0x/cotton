@@ -21,12 +21,12 @@ tokens :-
     $white+                             ;
     "def"                               { \_   -> Def               }
     "if"                                { \_   -> If                }
+    "else"                              { \_   -> Else              }
     "<-"                                { \_   -> LArrow            }
     "->"                                { \_   -> RArrow            }
     "`"                                 { \_   -> Backquort         }
     "\""                                { \_   -> Quort             }
     "\'"                                { \_   -> Apostrophe        }
-    "("                                 { \_   -> LParen            }
     "("                                 { \_   -> LParen            }
     ")"                                 { \_   -> RParen            }
     "{"                                 { \_   -> LBrace            }
@@ -37,8 +37,8 @@ tokens :-
     ";"                                 { \_   -> Semicolon         }
     $digit+                             { \str -> Num  $ read str   }
     $opchar+                            { \str -> Op   $ T.pack str }
-    $lower [$alpha \' \_ \?]+ \!?       { \str -> Var  $ T.pack str }
-    $upper [$alpha]+                    { \str -> Type $ T.pack str }
+    $lower [$alpha \' \_ \?]* \!?       { \str -> Var  $ T.pack str }
+    $upper [$alpha]*                    { \str -> Type $ T.pack str }
 
 {
 addToken :: MonadState (Stock Token) m => Token -> m ()
@@ -72,6 +72,7 @@ type Stock a = [a] -> [a]
 data Token
     = Def 
     | If 
+    | Else 
     | LArrow 
     | RArrow 
     | Equal 
