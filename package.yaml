@@ -1,0 +1,60 @@
+name:                cotton
+version:             0.1.0.0
+github:              "eliza0x/cotton"
+license:             MIT
+author:              "Sohei Yamaga"
+maintainer:          "me@eliza.link"
+copyright:           "2018 Sohei Yamaga."
+
+extra-source-files:
+- README.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/eliza0x/cotton#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- text
+- extensible
+- lens
+- trifecta
+- parsers
+- mtl
+- transformers
+- array
+- pipes
+- microlens-mtl
+
+library:
+  source-dirs: src
+  build-tools: 
+  - alex
+  - happy
+
+executables:
+  cotton:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - cotton
+
+tests:
+  cotton-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - cotton
