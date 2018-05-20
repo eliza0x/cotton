@@ -9,14 +9,10 @@ import Cotton.Lexer
 
 compile :: String -> IO ()
 compile sourceCode = do
-    let token = lexer sourceCode :: Maybe [Token]
+    let token = lexer sourceCode :: [Token]
     print token
-    case token of
-        Nothing    -> return ()
-        Just token -> do
-            putStrLn "\n==========\n"
-            let st         = parser token
-            mapM_ print st
+    putStrLn "\n==========\n"
+    print $ parser token
 
-            return undefined
+    return undefined
 

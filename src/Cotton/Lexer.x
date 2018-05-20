@@ -8,7 +8,7 @@ import Data.Text (Text(..))
 import qualified Data.Text as T
 }
 
-%wrapper "basic"
+%wrapper "posn"
 
 $digit = 0-9
 $opchar = [\!\#\$\%\&\*\+\.\/\<\=\>\?\@\\\^\|\-\~]
@@ -19,89 +19,71 @@ $labelchar   = [A-Za-z0-9\_]
 
 tokens :-
     $white+                             ;
-    "def"                               { \_   -> Def               }
-    "if"                                { \_   -> If                }
-    "else"                              { \_   -> Else              }
-    "<-"                                { \_   -> LArrow            }
-    "->"                                { \_   -> RArrow            }
-    "`"                                 { \_   -> Backquort         }
-    "\""                                { \_   -> Quort             }
-    "\'"                                { \_   -> Apostrophe        }
-    "("                                 { \_   -> LParen            }
-    ")"                                 { \_   -> RParen            }
-    "{"                                 { \_   -> LBrace            }
-    "}"                                 { \_   -> RBrace            }
-    "["                                 { \_   -> LBracket          }
-    "]"                                 { \_   -> RBracket          }
-    ":"                                 { \_   -> Colon             }
-    ";"                                 { \_   -> Semicolon         }
-    $digit+                             { \str -> Num  $ read str   }
-    $opchar+                            { \str -> Op   $ T.pack str }
-    $lower [$alpha \' \_ \?]* \!?       { \str -> Var  $ T.pack str }
-    $upper [$alpha]*                    { \str -> Type $ T.pack str }
+    "#".*                               ;
+    "def"                               { tok (\p _ -> Def        p )      }
+    "if"                                { tok (\p _ -> If         p )      }
+    "else"                              { tok (\p _ -> Else       p )      }
+    "<-"                                { tok (\p _ -> LArrow     p )      }
+    "->"                                { tok (\p _ -> RArrow     p )      }
+    "`"                                 { tok (\p _ -> Backquort  p )      }
+    """                                 { tok (\p _ -> Quort      p )      }
+    "'"                                 { tok (\p _ -> Apostrophe p )      }
+    "("                                 { tok (\p _ -> LParen     p )      }
+    ")"                                 { tok (\p _ -> RParen     p )      }
+    "{"                                 { tok (\p _ -> LBrace     p )      }
+    "}"                                 { tok (\p _ -> RBrace     p )      }
+    "["                                 { tok (\p _ -> LBracket   p )      }
+    "]"                                 { tok (\p _ -> RBracket   p )      }
+    ":"                                 { tok (\p _ -> Colon      p )      }
+    ";"                                 { tok (\p _ -> Semicolon  p )      }
+    $digit+                             { tok (\p s -> Num  (read s  , p)) }
+    $opchar+                            { tok (\p s -> Op   (T.pack s, p)) }
+    $lower [$alpha \' \_ \?]* \!?       { tok (\p s -> Var  (T.pack s, p)) }
+    $upper [$alpha]*                    { tok (\p s -> Type (T.pack s, p)) }
 
 {
 addToken :: MonadState (Stock Token) m => Token -> m ()
 addToken token = modify' (\f -> f . (token:))
 
-lexProg :: MonadState (Stock Token) m => String -> m LexResult
-lexProg str = go initialInput
-  where
-    initialInput = ('\n', [], str)
-
-    inputStr (_, _, s) = s
-
-    go input = case alexScan input 0 of
-      AlexEOF                  -> return LexSuccess
-      AlexError (_, _, rest)   -> return $ LexError rest
-      AlexSkip input' _        -> go input'
-      AlexToken input' len act -> do
-        let token = act $ take len $ inputStr input
-        addToken token
-        go input'
-
 data LexResult
-  = LexError String
+  = LexError AlexPosn
   | LexSuccess
   deriving (Eq, Show)
 
 type Stock a = [a] -> [a]
 
+tok f p s = f p s
 
 -- | Token type, used to communicate between the lexer and parser
 data Token
-    = Def 
-    | If 
-    | Else 
-    | LArrow 
-    | RArrow 
-    | Equal 
-    | Backquort 
-    | Quort 
-    | Apostrophe
-    | Semicolon 
-    | Colon 
-    | Comma 
-    | LParen 
-    | RParen 
-    | LBrace 
-    | RBrace 
-    | LBracket 
-    | RBracket 
-    | Num Int
-    | Op  Text
-    | Var Text
-    | Type Text
+    = Def               AlexPosn
+    | If                AlexPosn
+    | Else              AlexPosn
+    | LArrow            AlexPosn
+    | RArrow            AlexPosn
+    | Equal             AlexPosn
+    | Backquort         AlexPosn
+    | Quort             AlexPosn
+    | Apostrophe        AlexPosn
+    | Semicolon         AlexPosn
+    | Colon             AlexPosn
+    | Comma             AlexPosn
+    | LParen            AlexPosn
+    | RParen            AlexPosn
+    | LBrace            AlexPosn
+    | RBrace            AlexPosn
+    | LBracket          AlexPosn
+    | RBracket          AlexPosn
+    | Num        (Int,  AlexPosn)
+    | Op         (Text, AlexPosn)
+    | Var        (Text, AlexPosn)
+    | Type       (Text, AlexPosn)
     deriving (Eq, Show)
 
-tokenize str = ($ []) <$> runState (lexProg str) id
+opToEqual (Op ("=", p)) = Equal p
+opToEqual token         = token
 
-opToEqual (Op "=") = Equal
-opToEqual token    = token
-
-lexer :: String -> Maybe [Token]
-lexer str = (\(result, ts) -> if result == LexSuccess 
-            then Just (map opToEqual ts) 
-            else Nothing) $ tokenize str 
+lexer :: String -> [Token]
+lexer = map opToEqual . alexScanTokens
 }
 

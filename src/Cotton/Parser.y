@@ -4,79 +4,103 @@ module Cotton.Parser where
 import Data.Text (Text(..))
 import Cotton.Lexer hiding (If, Op, Var)
 import qualified Cotton.Lexer as CL
-
-import Data.Extensible
-import Data.Text (Text(..))
 }
 
 %name lawParser
 %tokentype { Token }
 %error { parseError }
+%monad { Either Text } -- { thenE } { return }
 
 %token
-  def       { Def }
-  if        { CL.If }
-  else      { Else }
-  '<-'      { LArrow }
-  '->'      { RArrow }
-  '='       { Equal }
-  '`'       { Backquort }
-  '"'       { Quort }
-  '\''      { Apostrophe }
-  ';'       { Semicolon }
-  ':'       { Colon }
-  ','       { Comma }
-  '('       { LParen }
-  ')'       { RParen }
-  '{'       { LBrace }
-  '}'       { RBrace }
-  '['       { LBracket }
-  ']'       { RBracket }
-  num       { Num  $$ }
-  op        { CL.Op   $$ }
-  var       { CL.Var $$ }
-  type      { Type $$ }
+  def       { Def        $$ }
+  if        { CL.If      $$ }
+  else      { Else       $$ }
+  '<-'      { LArrow     $$ }
+  '->'      { RArrow     $$ }
+  '='       { Equal      $$ }
+  '`'       { Backquort  $$ }
+  '"'       { Quort      $$ }
+  '\''      { Apostrophe $$ }
+  ';'       { Semicolon  $$ }
+  ':'       { Colon      $$ }
+  ','       { Comma      $$ }
+  '('       { LParen     $$ }
+  ')'       { RParen     $$ }
+  '{'       { LBrace     $$ }
+  '}'       { RBrace     $$ }
+  '['       { LBracket   $$ }
+  ']'       { RBracket   $$ }
+  num       { Num        $$ }
+  op        { CL.Op      $$ }
+  var       { CL.Var     $$ }
+  type      { Type       $$ }
 
 %%
 
+Exprs :: { [Expr] }
 Exprs   : Expr Exprs            { $1 : $2 }
         | Expr                  { [$1] }
 
+Expr :: { Expr }
 Expr    : Bind                  { $1 }
+        | Fun                   { $1 }
+        | Terms                {% fail $ "Top-level declaration expected:" ++ show $1 }
+
+Exprs2 :: { [Expr] }
+Exprs2   : Expr2 Exprs2         { $1 : $2 }
+         | Expr2                { [$1] }
+
+Expr2 :: { Expr }
+Expr2   : Bind                  { $1 }
         | Fun                   { $1 }
         | Terms                 { ETerm $1 }
 
-Bind    : def Val '=' Term      { Bind { val  = $2, expr = [ETerm $4] } }
-        | def Val '{' Exprs '}' { Bind { val  = $2, expr = $4 } }
 
-Fun     : def var '(' Args ')' ':' type '=' Term
-        { Fun { ename  = $2 , args  = $4, rettype = $7, expr  = [ETerm $9] } }
-        | def var '(' Args ')' ':' type '{' Exprs '}'
-        { Fun { ename  = $2 , args  = $4, rettype = $7, expr  = $9 } }
+Bind :: { Expr }
+Bind    : def Val '=' Term       { Bind { val  = $2, expr = [ETerm $4] } }
+        | def Val '{' Exprs2 '}' { Bind { val  = $2, expr = $4 } }
 
+Fun :: { Expr }
+Fun     : def Lower '(' Args ')' ':' Upper '=' Term
+        { Fun { ename  = fst $2 , args  = $4, rettype = (fst $7), expr  = [ETerm $9] } }
+        | def Lower '(' Args ')' ':' Upper '{' Exprs2 '}'
+        { Fun { ename  = fst $2 , args  = $4, rettype = (fst $7), expr  = $9 } }
+
+Args :: { [Val] }
 Args    : Val ',' Args          { $1 : $3 }
         | Val                   { [$1] }
         |                       { [] }
  
-Val     : var ':' type          { Val { name  = $1, type' = $3 } }
+Val :: { Val }
+Val     : Lower ':' Upper          { Val { name  = fst $1, type' = (fst $3) } }
 
-CallArgs: Term ',' CallArgs      { $1 : $3 }
-        | Term                   { [$1] }
-        |                        { [] }
+CallArgs :: { [Term] }
+CallArgs : Term ',' CallArgs      { $1 : $3 }
+         | Term                   { [$1] }
+         |                        { [] }
 
+Terms   :: { Term } 
 Terms   : Term ';' Terms        { SemiColon {term = $1, term' = $3} }
         | Term                  { $1 }
 
-Term    : if Term '{' Exprs '}' else '{' Exprs '}' 
+Term   :: { Term } 
+Term    : if Term '{' Exprs2 '}' else '{' Exprs2 '}' 
         {If {cond = $2, texpr = $4, texpr' = $8 } }
-        | var '(' CallArgs ')'      { Call { tname = $1, targs = $3 } }
+        | Lower '(' CallArgs ')'      { Call { tname = fst $1, targs = $3 } }
         | '(' Term ')'          { $2 }
         | '{' Terms '}'         { $2 }
-        | '"' var '"'           { Str $2 }
-        | '"' type '"'          { Str $2 }
-        | Term op Term          { Op { op = $2, term = $1, term' = $3 } }
-        | num                   { TInt $1 }
-        | var                   { Var $1 }
+        | '"' Lower '"'           { Str (fst $2) }
+        | '"' Upper '"'          { Str (fst $2) }
+        | Term op Term          { Op { op = fst $2, term = $1, term' = $3 } }
+        | num                   { TInt (fst $1) }
+        | Lower                   { Var (fst $1) }
+
+Lower   : var   { $1 }
+        | type  {% fail $ "Require upper case: " ++ show $1 }
+
+Upper   : type  { $1 }
+        | var   {% fail $ "Require lower case: " ++ show $1 }
+
 
 {
 data Term = 
@@ -101,8 +125,8 @@ data Val = Val { name :: Text, type' :: Text }
     deriving (Show, Eq)
 
 parseError :: [Token] -> a
-parseError e = error $ "Parse error: " ++ show e
+parseError (t:ts) = error . ("Parse error - line: " ++) $ show t
 
-parser :: [Token] -> [Expr]
-parser = lawParser
+parser :: [Token] -> Either Text [Expr]
+parser tokens = lawParser tokens
 }
