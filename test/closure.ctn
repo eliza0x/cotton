@@ -1,0 +1,5 @@
+def f(n: Int): Int {
+    def g(): Int {
+        n
+    }
+}

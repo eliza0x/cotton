@@ -25,6 +25,8 @@ dependencies:
 - parsers
 - mtl
 - array
+- containers
+- lens
 
 library:
   source-dirs: src
