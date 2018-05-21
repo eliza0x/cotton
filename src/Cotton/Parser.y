@@ -57,37 +57,35 @@ import qualified Cotton.Lexer as CL
 -- | 文
 -- トップレベルに式を書かせない
 Exprs :: { [Expr] }
-Exprs   : Expr Exprs            { $1 : $2 }
-        | Expr                  { [$1] }
-
-Expr :: { Expr }
-Expr    : Bind                  { $1 }
-        | Fun                   { $1 }
+Exprs   : Bind Exprs             { fst $1 : $2 }
+        | Fun  Exprs             { fst $1 : $2 }
+        |                       { [] }
         | Terms                 {% fail $ "Top-level declaration expected:" ++ (show $ snd $1) }
 
 -- | インナー文
 Exprs2 :: { [Expr] }
-Exprs2   : Expr2 Exprs2         { $1 : $2 }
-         | Expr2                { [$1] }
+Exprs2  : Bind Exprs2            { fst $1 : $2 }
+        | Fun  Exprs2            { fst $1 : $2 }
+        | Terms Exprs2           { ETerm (fst $1) : $2 }
+        | Terms                  { [ETerm (fst $1)] }
+        | Bind                   {% fail $ "expression must be finish term." ++ show (snd $1) }
+        | Fun                    {% fail $ "expression must be finish term." ++ show (snd $1) }
 
-Expr2 :: { Expr }
-Expr2   : Bind                  { $1 }
-        | Fun                   { $1 }
-        | Terms                 { ETerm (fst $1) }
+Bind :: { (Expr, CL.AlexPosn) }
+Bind    : def Lower ':' Upper '=' Term ';'   
+        { (Bind { label = fst $2, type' = fst $4, expr = [ETerm $ fst $6], pos = CL.pos $1 }, CL.pos $1) }
+        | def Lower ':' Upper '{' Exprs2 '}' 
+        { (Bind { label = fst $2, type' = fst $4, expr = $6,               pos = CL.pos $1 }, CL.pos $1) }
 
-Bind :: { Expr }
-Bind    : def Lower ':' Upper '=' Term ';'   { Bind { label = fst $2, type' = fst $4, expr = [ETerm $ fst $6], pos = CL.pos $1 } }
-        | def Lower ':' Upper '{' Exprs2 '}' { Bind { label = fst $2, type' = fst $4, expr = $6,               pos = CL.pos $1 } }
-
-Fun :: { Expr }
+Fun :: { (Expr, CL.AlexPosn) }
 Fun     : def Lower '(' Args ')' ':' Upper '=' Term ';'
-        { Fun { label = fst $2 , args = $4, type' = fst $7, expr = [ETerm $ fst $9], pos = CL.pos $1 } }
+        { (Fun { label = fst $2 , args = $4, type' = fst $7, expr = [ETerm $ fst $9], pos = CL.pos $1 }, CL.pos $1) }
         | def Lower '(' Args ')' ':' Upper '{' Exprs2 '}'
-        { Fun { label = fst $2 , args = $4, type' = fst $7, expr  = $9,        pos = CL.pos $1 } }
+        { (Fun { label = fst $2 , args = $4, type' = fst $7, expr  = $9,        pos = CL.pos $1 }, CL.pos $1) }
 
 -- | 式
 Terms   :: { (Term, CL.AlexPosn) } 
-Terms   : Term ';' Expr2        { (SemiColon {term = fst $1, texpr = $3}, snd $1) }
+Terms   : Term ';' Terms        { (SemiColon {term = fst $1, term' = fst $3}, snd $1) }
         | Term                  { (fst $1, snd $1) }
 
 Term   :: { (Term, CL.AlexPosn) } 
@@ -163,7 +161,7 @@ data Term
     | Overwrite { var  :: Text, term   :: Term,   tpos    :: CL.AlexPosn }                 -- 変数上書き
     | Op        { op   :: Text, term   :: Term,   term'   :: Term, tpos :: CL.AlexPosn }   -- 演算子
     | Call      { var  :: Text, targs  :: [Term], tpos    :: CL.AlexPosn }                 -- Call
-    | SemiColon { term :: Term, texpr  :: Expr,   tpos    :: CL.AlexPosn }                 -- 連結
+    | SemiColon { term :: Term, term'  :: Term,   tpos    :: CL.AlexPosn }                 -- 連結
     | If        { cond :: Term, texprs :: [Expr], texprs' :: [Expr], tpos :: CL.AlexPosn } -- if式
     deriving Eq
 

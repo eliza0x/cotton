@@ -79,7 +79,7 @@ alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
         (Overwrite var term pos)   -> Overwrite <$> findDict var <*> alphaTerm term <*> pure pos
         (Op op term term' pos)     -> Op op <$> alphaTerm term <*> alphaTerm term'  <*> pure pos
         (Call var args pos)        -> Call <$> findDict var <*> mapM alphaTerm args <*> pure pos
-        (SemiColon term expr pos)  -> SemiColon <$> alphaTerm term <*> alpha' expr  <*> pure pos
+        (SemiColon term term' pos)  -> SemiColon <$> alphaTerm term <*> alphaTerm term' <*> pure pos
         (If cond exprs exprs' pos) -> If <$> alphaTerm cond <*> mapM alpha' exprs <*> mapM alpha' exprs' <*> pure pos
         t                          -> return t
         where
@@ -132,7 +132,7 @@ inspectImplicitArgs exprs  = S.execState (mapM_ (inspectImplicitArgs' "" S.empty
         (Var var _)         -> defined <$ ifImplisitArgThenAppend var
         (Overwrite var t _) -> inspectTermSub t <* ifImplisitArgThenAppend var
         (Op _ t t' _)       -> inspectTermSub t <* inspectTermSub t'
-        (SemiColon t e _)   -> inspectTermSub t <* inspectImplicitArgsSub e 
+        (SemiColon t t' _)   -> inspectTermSub t <* inspectTermSub t'
         (Call var ts _)     -> defined <$ mapM_ inspectTermSub ts <* ifImplisitArgThenAppend var
         (If t es es' _)     -> defined <$ inspectTermSub t 
                                        <* mapM_ inspectImplicitArgsSub es 
