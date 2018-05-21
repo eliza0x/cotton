@@ -188,7 +188,7 @@ instance Show Term where
 
 instance Show Expr where
     show (ETerm t)          = show t
-    show (Bind l t es _p)   = concat ["def ",unpack l,",",unpack t," {\n",addIndent . unlines $ map show es,"}"]
+    show (Bind l t es _p)   = concat ["def ",unpack l,": ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
     show (Fun l as t es _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as
                                      ,"): ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
 

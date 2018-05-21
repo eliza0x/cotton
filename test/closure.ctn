@@ -1,5 +1,7 @@
 def f(n: Int): Int {
+    def m: Int = 123;
     def g(): Int {
+        def m: Int = 456;
         n
     }
     g()
