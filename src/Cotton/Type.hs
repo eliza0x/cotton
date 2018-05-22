@@ -21,6 +21,7 @@ import qualified Control.Monad.State.Strict as S
 data Type 
     = Type Text
     | Func [Type] Type
+    | Bottom
     deriving Eq
 
 instance Show Type where
@@ -36,7 +37,12 @@ makeLenses ''Env
 typeCheck :: [Expr] -> Env
 typeCheck exprs = S.execState (mapM_ typeCheck' exprs) initState
     where
-    initState = Env M.empty
+    initState = Env $ M.fromList [ ("+",  Func [Type "Int", Type "Int"] (Type "Int"))
+                                 , ("-",  Func [Type "Int", Type "Int"] (Type "Int"))
+                                 , ("*",  Func [Type "Int", Type "Int"] (Type "Int"))
+                                 , ("/",  Func [Type "Int", Type "Int"] (Type "Int"))
+                                 , ("==", Func [Type "Int", Type "Int"] (Type "Bool"))
+                                 ]
     
 typeCheck' :: Expr -> EnvM Type
 typeCheck' = \case
@@ -73,7 +79,7 @@ typeCheck'' = \case
         typeTerm  <- typeCheck'' term
         typeTerm' <- typeCheck'' term'
         when (typeTerm /= typeTerm') $ error "type error."
-        Func args rettype <- fromMaybe (error "this operator is not defined") <$> getType op
+        Func args rettype <- fromMaybe (error $ show op ++ " is not defined") <$> getType op
         when ([typeTerm, typeTerm'] /= args) $ error "type error."
         return rettype
     Call{..}        -> do

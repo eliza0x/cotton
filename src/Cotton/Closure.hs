@@ -27,18 +27,17 @@ import qualified Data.Map.Strict as M
 import Data.Set (Set)
 import qualified Data.Set as S
 
-
 data Expr
-    = Fun       { elabel :: Text, eargs  :: [Arg], etype :: Text, eterms :: [Term], epos :: L.AlexPosn }
-    | Bind      { elabel :: Text, etype :: Text, eterms :: [Term],                    epos :: L.AlexPosn }
+    = Fun       { elabel :: Text, eargs  :: [Arg], etype :: T.Type, eterms :: [Term], epos :: L.AlexPosn }
+    | Bind      { elabel :: Text, etype :: T.Type, eterms :: [Term],                    epos :: L.AlexPosn }
     deriving Eq
 
 data Term
-    = TBind     { label :: Text, type' :: T.Type, terms :: [Term],  pos :: L.AlexPosn }
-    | If        { cond :: Term, terms :: [Term],  terms' :: [Term], pos :: L.AlexPosn } -- if式
+    = TBind     { label :: Text, type' :: T.Type, term   :: Term,   pos :: L.AlexPosn }
+    | If        { cond :: Term,  terms :: [Term],  terms' :: [Term], pos :: L.AlexPosn } -- if式
     | SemiColon { term :: Term, term' :: Term,                      pos :: L.AlexPosn } -- 連結
-    | Overwrite { var  :: Text, term   :: Term,                     pos :: L.AlexPosn } -- 変数上書き
-    | Op        { op   :: Text, term   :: Term,   term' :: Term,    pos :: L.AlexPosn } -- 演算子
+    | Overwrite { var  :: Text, type' :: T.Type,  term   :: Term,                     pos :: L.AlexPosn } -- 変数上書き
+    | Op        { op   :: Text, term   :: Term,   term'  :: Term,   pos :: L.AlexPosn } -- 演算子
     | Call      { var  :: Text, targs  :: [Term],                   pos :: L.AlexPosn } -- Call
     | Str       { text :: Text,                                     pos :: L.AlexPosn } -- 名前
     | TInt      { num  :: Int,                                      pos :: L.AlexPosn } -- 整数
@@ -120,12 +119,12 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
     unnest = \case
         (P.Bind l t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
-            return . Just $ Bind l t terms p
+            return . Just $ Bind l (T.Type t) terms p
         (P.Fun l as t exprs p) -> do
             exprs' <- M.catMaybes <$> mapM unnest' exprs
             let impArgs = M.maybe [] S.elems (implicitArgs!?l)
             let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
-            W.tell [Fun l args t exprs' p]
+            W.tell [Fun l args (T.Type t) exprs' p]
             return Nothing
         (P.ETerm term) -> error "error" -- グローバルに式が存在？
 
@@ -133,12 +132,13 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
     unnest' = \case
         (P.Bind l t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
-            return . Just $ TBind l (typeOf l) terms p
+            let (t:ts) = terms
+            return . Just $ TBind l (typeOf l) (foldl (\t t' -> SemiColon t t' p) t ts) p
         (P.Fun l as t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
             let impArgs = M.maybe [] S.elems (implicitArgs!?l)
             let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
-            W.tell [Fun l (pargsToArgs as) t terms p]
+            W.tell [Fun l (pargsToArgs as) (T.Type t) terms p]
             return Nothing
         (P.ETerm term) -> Just <$> unnestTerm term
 
@@ -147,7 +147,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
         (P.TInt num pos)             -> return $ TInt num pos
         (P.Var var pos)              -> return $ Var var (typeOf var) (Just pos)
         (P.TStr text pos)            -> return $ Str text pos
-        (P.Overwrite var term pos)   -> Overwrite var <$> unnestTerm term <*> pure pos
+        (P.Overwrite var term pos)   -> Overwrite var (typeOf var) <$> unnestTerm term <*> pure pos
         (P.Op op term term' pos)     -> Op op <$> unnestTerm term <*> unnestTerm term' <*> pure pos
         (P.SemiColon term term' pos) -> SemiColon <$> unnestTerm term <*> unnestTerm term' <*> pure pos
         (P.Call var args pos)        -> do
@@ -163,7 +163,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
 addIndent = unlines . map ("\t"++) . lines
 
 instance Show Term where
-    show (TBind l t es _p)  = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
+    show (TBind l ty t _p)  = concat ["def ",unpack l,": ",show ty," {\n",show t,"}"]
     show (TInt n _)         = show n
     show (Var l _t _)       = unpack l
     show (Str t _)          = unpack t
@@ -172,12 +172,12 @@ instance Show Term where
     show (SemiColon t t' _) = show t ++ ";\n" ++ show t'
     show (If c e e' _)      = "if " ++ show c ++ " {\n" ++ (addIndent . unlines $ map show e) 
                             ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
-    show (Overwrite l t _)  = unpack l ++ " <- " ++ show t
+    show (Overwrite l ty t _)  = unpack l ++ ": " ++ show ty ++ " <- " ++ show t
 
 instance Show Expr where
-    show (Bind l t es _p)   = concat ["def ",unpack l,": ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
+    show (Bind l t es _p)   = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
     show (Fun l as t es _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as
-                                     ,"): ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
+                                     ,"): ",show t," {\n",addIndent . unlines $ map show es,"}"]
 
 instance Show Arg where
     show (Arg a t _) = unpack a ++ ": " ++ show t

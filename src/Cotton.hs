@@ -36,6 +36,10 @@ compile sourceCode = do
             print its'
             putStrLn "\n=========="
             putStrLn "Clojure変換\n"
-            let uts = closure typeEnv ts'
-            mapM_ print uts
+            let cts = closure typeEnv ts'
+            mapM_ print cts
+            putStrLn "\n=========="
+            putStrLn "K正規化\n"
+            knorm <- knormalize typeEnv cts
+            mapM_ print knorm
 

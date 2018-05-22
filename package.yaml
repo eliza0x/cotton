@@ -21,12 +21,14 @@ description: Please see the README on GitHub at <https://github.com/eliza0x/cott
 dependencies:
 - base >= 4.7 && < 5
 - text
+- string-random
 - lens
 - parsers
 - mtl
 - array
 - containers
 - lens
+- extensible
 
 library:
   source-dirs: src
