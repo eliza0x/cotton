@@ -157,7 +157,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
             Call var <$> pure args'' <*> pure pos
         (P.If cond exprs exprs' pos) -> If <$> unnestTerm cond
                                            <*> (M.catMaybes <$> mapM unnest' exprs)  
-                                           <*> (M.catMaybes <$> mapM unnest' exprs) 
+                                           <*> (M.catMaybes <$> mapM unnest' exprs') 
                                            <*> pure pos
 
 addIndent = unlines . map ("\t"++) . lines
