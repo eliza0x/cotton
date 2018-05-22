@@ -25,6 +25,9 @@ data Type
     deriving Eq
 
 instance Show Type where
+    show (Type "Int") = "i32"
+    show (Type "Unit") = "void"
+    show (Type t) = unpack t
     show (Type t) = unpack t
     show (Func as t) = "("++drop 2 (concatMap (\a -> ", " ++ show a) as)++"): "++show t
 

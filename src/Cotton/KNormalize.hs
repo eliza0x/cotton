@@ -31,10 +31,11 @@ data Block
     deriving  Eq
 
 data KNormal
-    = Let  {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
-    | Op   { op :: Text,  val1 :: Val, val2 :: Val, val3 :: Val, pos :: Maybe L.AlexPosn }
-    | Call { var1 :: Val, fun :: Text, args' :: [Val]               , pos :: Maybe L.AlexPosn }
-    | If   { condVar :: Val, retVar :: Val, cond :: [KNormal], then' :: [KNormal], else' :: [KNormal], pos :: Maybe L.AlexPosn }
+    = Let       {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | OverWrite {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | Op        { op :: Text,  val1 :: Val, val2 :: Val, val3 :: Val, pos :: Maybe L.AlexPosn }
+    | Call      { var1 :: Val, fun :: Text, args' :: [Val]               , pos :: Maybe L.AlexPosn }
+    | If        { condVar :: Val, retVar :: Val, cond :: [KNormal], then' :: [KNormal], else' :: [KNormal], pos :: Maybe L.AlexPosn }
     deriving Eq
 
 data Val
