@@ -46,19 +46,20 @@ typeCheck exprs = S.execState (mapM_ typeCheck' exprs) initState
     
 typeCheck' :: Expr -> EnvM Type
 typeCheck' = \case
-    Bind{..} -> do updateEnv label (Type type')
-                   type'' <- last <$> mapM typeCheck' expr 
-                   when (Type type' /= type'') $ error "type error."
-                   return type''
-    Fun{..}  -> do checkArgs args
-                   updateEnv label (Func (map (Type . fromJust . P.type'') args) $ Type type') 
-                   types <- mapM typeCheck' expr
-                   when (Type type' /= last types) $  do
-                        error . ("env:: "++) . show <$> S.get
-                    -- (error $ "type error.\nactual type: "++show (last types)
-                    --                 ++"\nexpected type: "++show type'
-                    --                 ++"\npos: "++show pos)
-                   return $ last types
+    Bind{..} -> do 
+        updateEnv label (Type type')
+        type'' <- last <$> mapM typeCheck' expr 
+        when (Type type' /= type'') $ error "type error."
+        return type''
+    Fun{..}  -> do 
+        checkArgs args
+        updateEnv label (Func (map (Type . fromJust . P.type'') args) $ Type type') 
+        types <- mapM typeCheck' expr
+        when (Type type' /= last types) $  do
+            (error $ "type error.\nactual type: "++show (last types)
+                            ++"\nexpected type: "++show type'
+                            ++"\npos: "++show pos)
+        return $ last types
     (ETerm term) -> typeCheck'' term
     where
     checkArgs args = flip mapM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
