@@ -38,7 +38,7 @@ data KNormal
 
 data Val
     = Var     { name :: Text, type' :: T.Type, vpos :: Maybe L.AlexPosn }
-    | NullVar {                                vpos :: Maybe L.AlexPosn } -- write only
+    | NullVar
     | Num     { num  :: Int,                   vpos :: Maybe L.AlexPosn }
     | Str     { text :: Text,                  vpos :: Maybe L.AlexPosn }
     deriving Eq
@@ -65,14 +65,14 @@ knormalize typeEnv = mapM knormalize'
 
     knormalizeTerm :: T.Type -> [C.Term] -> IO [KNormal]
     knormalizeTerm retType terms = 
-        concat <$> mapM (\term -> reverse <$> runKnormalize (knormalizeTerm' returnVar term)) terms
+        concat <$> mapM (\term -> runKnormalize (knormalizeTerm' returnVar term)) terms
         where
         returnVar = Var "#return" retType Nothing
         valType = \case
-            Var{..}     -> type'
-            NullVar{..} -> T.Bottom
-            Num{..}     -> T.Type "Int"
-            Str{..}     -> T.Type "String" 
+            Var{..} -> type'
+            NullVar -> T.Bottom
+            Num{..} -> T.Type "Int"
+            Str{..} -> T.Type "String" 
 
         knormalizeTerm' :: Val -> C.Term -> KNormalize ()
         knormalizeTerm' retVar = \case
@@ -83,29 +83,23 @@ knormalize typeEnv = mapM knormalize'
                 else' <- E.liftEff #io $ knormalizeTerm (valType retVar) terms'
                 E.tellEff #knorm [If cond' then' else' (Just pos)]
             C.SemiColon{..} -> do
-                knormalizeTerm' (NullVar $ Just pos) term
-                knormalizeTerm' retVar term'
+                knormalizeTerm' retVar term
+                knormalizeTerm' NullVar term'
             C.Overwrite{..} -> do
-                -- 返り値は無いのでretVarは無視
-                newVarName <- E.liftEff #io uniqueVarName
-                let newVar = Var newVarName type' Nothing
-                -- SSAなので代入先の変数名は別
-                E.modifyEff #dict (M.insert var newVarName)
                 -- 式の返り値を変数名にすることで代入先を決定
-                knormalizeTerm' newVar term
+                let var' = Var var type' Nothing
+                knormalizeTerm' var' term
+                when (retVar /= NullVar) $
+                    E.tellEff #knorm [Let retVar var' (Just pos)]
             C.Op{..}        -> do
                 let T.Func [t, t'] _ = fromMaybe (error $ "undefined operator: " ++ unpack op) $ typeOf !? op
 
-                newVarName <- E.liftEff #io uniqueVarName
-                newVarName' <- E.liftEff #io uniqueVarName
-                let newVar' = Var newVarName' t' Nothing
-                let newVar = Var newVarName t Nothing
-                
-                E.tellEff #knorm [Op op retVar newVar newVar' (Just pos)]
+                [n, n']  <- E.liftEff #io $ replicateM 2 uniqueVarName
+                let (var, var') = (Var n t Nothing, Var n' t' Nothing)
 
-                knormalizeTerm' newVar' term'
-
-                knormalizeTerm' newVar term
+                knormalizeTerm' var  term
+                knormalizeTerm' var' term'
+                E.tellEff #knorm [Op op retVar var var' (Just pos)]
             C.Call{..}      -> do
                 args <- E.liftEff #io $ mapM (const uniqueVarName) [1..length targs] 
                 let T.Func types _ = fromMaybe (error $ "undefined function name: " ++ unpack var) $ typeOf !? var
@@ -113,11 +107,16 @@ knormalize typeEnv = mapM knormalize'
                     knormalizeTerm' (Var argName type' (Just pos)) term
                 let valArgs = map (\(arg, type') -> Var arg type' (Just pos)) $ zip args types
                 E.tellEff #knorm [Call retVar var valArgs (Just pos)]
-            C.Str{..}       -> E.tellEff #knorm [Let retVar (Str text (Just pos)) (Just pos)]
-            C.TInt{..}      -> E.tellEff #knorm [Let retVar (Num num (Just pos)) (Just pos)]
+            C.Str{..}       -> do
+                when (retVar /= NullVar) $
+                    E.tellEff #knorm [Let retVar (Str text (Just pos)) (Just pos)]
+            C.TInt{..}      -> do
+                when (retVar /= NullVar) $
+                    E.tellEff #knorm [Let retVar (Num num (Just pos)) (Just pos)]
             C.Var{..}       -> do
                 var' <- fromMaybe var . (!? var) <$> E.getEff #dict
-                E.tellEff #knorm [Let retVar (Var var' type' posm) posm]
+                when (retVar /= NullVar) $
+                    E.tellEff #knorm [Let retVar (Var var' type' posm) posm]
             where
             uniqueVarName :: IO Text
             uniqueVarName = R.stringRandomIO "[a-zA-Z0-9_]{8}"
@@ -137,7 +136,7 @@ instance Show Block where
 instance Show Val where
     -- show (Var n t _) = unpack n ++ ": " ++ show t
     show (Var n t _) = unpack n
-    show (NullVar _) = "_"
+    show NullVar     = "_"
     show (Num n _)   = show n
     show (Str t _)   = show t
 

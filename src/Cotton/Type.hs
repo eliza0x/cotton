@@ -52,9 +52,13 @@ typeCheck' = \case
                    return type''
     Fun{..}  -> do checkArgs args
                    updateEnv label (Func (map (Type . fromJust . P.type'') args) $ Type type') 
-                   type'' <- last <$> mapM typeCheck' expr
-                   when (Type type' /= type'') $ error "type error."
-                   return type''
+                   types <- mapM typeCheck' expr
+                   when (Type type' /= last types) $  do
+                        error . ("env:: "++) . show <$> S.get
+                    -- (error $ "type error.\nactual type: "++show (last types)
+                    --                 ++"\nexpected type: "++show type'
+                    --                 ++"\npos: "++show pos)
+                   return $ last types
     (ETerm term) -> typeCheck'' term
     where
     checkArgs args = flip mapM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
@@ -67,13 +71,12 @@ typeCheck' = \case
 typeCheck'' :: Term -> EnvM Type
 typeCheck'' = \case
     TInt{..}      -> return $ Type "Int"
-    Var{..}       -> do
-        fromMaybe (error $ "this variable is not defined") <$> getType var 
+    Var{..}       -> fromMaybe (error $ show var ++ " is not defined") <$> getType var 
     TStr{..}      -> return $ Type "String"
     Overwrite{..} -> do
         type' <- fromMaybe (error $ "this variable is not defined") <$> getType var 
         type'' <- typeCheck'' term
-        when (type' /= type'') $ error "type error."
+        when (type' /= type'') $ error ("type error.\n"++show var++": "++show type' ++ "\n"++show term++": "++show type'')
         return $ Type "Unit"
     Op{..}        -> do
         typeTerm  <- typeCheck'' term
@@ -87,7 +90,9 @@ typeCheck'' = \case
         Func args rettype <- fromMaybe (error "this function is not defined") <$> getType var
         when (argTypes /= args) $ error "type error."
         return rettype
-    SemiColon{..}   -> typeCheck'' term' <* typeCheck'' term
+    SemiColon{..}   -> do
+        typeCheck'' term
+        typeCheck'' term'
     If{..}          -> do
         condType <- typeCheck'' cond
         when (condType /= Type "Bool") $ error "type error."

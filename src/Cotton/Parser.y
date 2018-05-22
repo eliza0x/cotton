@@ -91,7 +91,7 @@ Terms   : Term ';' Terms        { (SemiColon {term = fst $1, term' = fst $3}, sn
 Term   :: { (Term, CL.AlexPosn) } 
 Term    : if Term '{' Exprs2 '}' else '{' Exprs2 '}' 
                                     { (If {cond = fst $2, texprs = $4, texprs' = $8, tpos = CL.pos $1 }, CL.pos $1) }
-        | Lower '<-' Terms          { (Overwrite (fst $1) (fst $3) (snd $1), snd $1) }
+        | Lower '<-' Term           { (Overwrite (fst $1) (fst $3) (snd $1), snd $1) }
         | Lower '(' Calls ')'       { (Call { var = fst $1, targs = $3, tpos = snd $1 }, snd $1) }
         | '(' Term ')'              { (fst $2, snd $2) }
         | '{' Terms '}'             { (fst $2, snd $2) }
