@@ -1,0 +1,12 @@
+def main(): Int {
+    def a: Int {
+        def a: Int {
+            def a: Int {
+                1
+            }
+            2
+        }
+        3
+    }
+    a
+}

@@ -10,6 +10,7 @@ import Cotton.KNormalize
 import Cotton.Closure
 import Cotton.Alpha
 import Cotton.Type
+import Cotton.Emit
 
 -- | 文字列を投げ込めばいい感じにやってくれる
 compile :: String -> IO ()
@@ -42,4 +43,9 @@ compile sourceCode = do
             putStrLn "K正規化\n"
             knorm <- knormalize typeEnv cts
             mapM_ print knorm
+            putStrLn "\n=========="
+            putStrLn "LLVM IR\n"
+            let llvmir = emit knorm
+            mapM_ print llvmir
 
+            

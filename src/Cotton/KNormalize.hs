@@ -140,10 +140,10 @@ instance Show Block where
     show (Bind l t es _p)   = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
 
 instance Show Val where
-    -- show (Var n t _) = unpack n ++ ": " ++ show t
     show (Var n t _) = unpack n
     show NullVar     = "_"
     show (Num n _)   = show n
     show (Str t _)   = show t
+    -- show (Var n t _) = unpack n ++ ": " ++ show t
 
 addIndent = unlines . map ("\t"++) . lines
