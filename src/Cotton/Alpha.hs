@@ -48,6 +48,7 @@ alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
     alpha' :: P.Expr -> Alpha P.Expr
     alpha' = \case
         (P.Bind label' type' expr' pos) -> do
+            curPrefix <- use prefix
             -- 現在のprefixを変数名に追加
             label <- appendPrefix label'
             -- prefixに現在の変数名を追加
@@ -56,8 +57,11 @@ alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
             updateDict label' label
             -- 再起的に更新、環境を引き継ぐ
             expr  <- mapM alpha' expr'
+            -- スコープから出たのでprefixをリセット
+            updatePrefix curPrefix
             return P.Bind{..}
         (P.Fun label' args' type' expr' pos) -> do
+            curPrefix <- use prefix
             label <- appendPrefix label'
             updatePrefix label
             -- 引数の変数名を対応した物に変換
@@ -66,12 +70,13 @@ alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
                 updateDict (P.argName arg) arg'
                 return $ P.Arg arg' (P.type'' arg) (P.apos arg)) 
             updateDict label' label
-    
             expr  <- mapM alpha' expr'
+            updatePrefix curPrefix
             return P.Fun{..}
         (P.ETerm term) -> P.ETerm <$> alphaTerm term
         where
-        appendPrefix label = uses prefix (\pre -> if T.null pre then pre <> label else pre <> "#" <> label)
+        infixSeparetar = "_" -- "#"
+        appendPrefix label = uses prefix (\pre -> if T.null pre then pre <> label else pre <> "_" <> label)
         updatePrefix label = prefix .= label
         updateDict key val = rewritedVarName %= M.insert key val
     
