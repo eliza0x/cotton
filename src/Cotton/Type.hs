@@ -67,7 +67,7 @@ typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
             return $ last types
         (ETerm term) -> typeCheck'' term
         where
-        checkArgs args = flip mapM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
+        checkArgs args = forM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
         updateEnv label type' = do
             type'' <- uses typeOf (!? label)
             when (isJust type'' && fromJust type'' /= type') 

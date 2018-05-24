@@ -18,7 +18,6 @@ import qualified Cotton.KNormalize as K
 import qualified Cotton.Type as T
 
 import Control.Monad.Free
-import Control.Monad
 import Data.Monoid
 import Data.Functor
 
