@@ -31,7 +31,7 @@ import Debug.Trace
 
 data AlphaEnv = AlphaEnv {
     _prefix :: Text,                  -- ^ プレフィックス
-    _rewritedVarName :: Map Text Text -- ^ 変数の書き換え後の名前
+    _rewrittenVarName :: Map Text Text -- ^ 変数の書き換え後の名前
     } deriving (Show, Eq)
 makeLenses ''AlphaEnv
 
@@ -75,10 +75,10 @@ alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
             return P.Fun{..}
         (P.ETerm term) -> P.ETerm <$> alphaTerm term
         where
-        infixSeparetar = "_" -- "#"
+        infixSeparator = "_" -- "#"
         appendPrefix label = uses prefix (\pre -> if T.null pre then pre <> label else pre <> "_" <> label)
         updatePrefix label = prefix .= label
-        updateDict key val = rewritedVarName %= M.insert key val
+        updateDict key val = rewrittenVarName %= M.insert key val
     
     alphaTerm :: P.Term -> Alpha P.Term
     alphaTerm = \case
@@ -91,10 +91,10 @@ alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
         t                          -> return t
         where
         findDict key = do
-            valM <- uses rewritedVarName (M.lookup key)
+            valM <- uses rewrittenVarName (M.lookup key)
             case valM of
                 Just val -> return val
                 Nothing  -> do
                     error $ show key ++ " is not found."
-                    error . show . _rewritedVarName <$> S.get  -- ここにmonad failを入れたい
+                    error . show . _rewrittenVarName <$> S.get  -- ここにmonad failを入れたい
 
