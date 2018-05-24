@@ -23,7 +23,7 @@ import Data.Monoid
 import Data.Functor
 
 data LLVM_IR 
-    = Fun  { label :: Text, retType :: T.Type, args :: [Reg], insts :: [Instraction] }
+    = Fun  { label :: Text, retType :: T.Type, args :: [Reg], insts :: [Instruction] }
     | Bind { label :: Text, retType :: T.Type, ival :: Reg }
     deriving Eq
 
@@ -39,7 +39,7 @@ instance Show LLVM_IR where
         indent Label{..}  = ""
         indent _          = "\t"
 
-data Instraction 
+data Instruction 
     = Alloca { rd   :: Ref,            type' :: T.Type }
     | Store  { rd   :: Ref, rs  :: Reg, type' :: T.Type }
     | Load   { rd'  :: Reg, rs' :: Ref, type' :: T.Type }
@@ -54,7 +54,7 @@ data Instraction
     | Label  { label' :: Text }
     deriving Eq
 
-instance Show Instraction where
+instance Show Instruction where
     show = \case
         (Alloca rd    type') -> show rd ++ " = alloca "++show type'++", align 4"
         (Store  rd rs type') -> "store "++show type'++" "++show rs++", "++show type'++"* "++show rd++", align 4"
@@ -97,14 +97,14 @@ knorm2llvmir blocks = do
     (ir, insts) <- unzip <$> mapM block2LLVM_IR blocks
     return $ Fun "init" (T.Type "Unit") [] (concat insts) : ir
 
-block2LLVM_IR :: K.Block -> IO (LLVM_IR, [Instraction])
+block2LLVM_IR :: K.Block -> IO (LLVM_IR, [Instruction])
 block2LLVM_IR = \case
     K.Fun{..}  -> do
-        llvmir <- kNormal2Instraction args knorms
+        llvmir <- kNormal2Instruction args knorms
         let llvmir' = filter isAlloca llvmir ++ filter (not . isAlloca) llvmir
         return (Fun label btype (map val2Reg args) llvmir', [])
     K.Bind{..} -> do 
-        llvmir <- kNormal2Instraction [] knorms
+        llvmir <- kNormal2Instruction [] knorms
         let llvmir' = filter isAlloca llvmir ++ filter (not . isAlloca) llvmir
         return (Bind label btype (initVal btype), llvmir')
     where
@@ -118,14 +118,14 @@ block2LLVM_IR = \case
 
 type InstM = S.StateT (Se.Set Text) IO
 
-kNormal2Instraction :: [K.Val] ->  [K.KNormal] -> IO [Instraction]
-kNormal2Instraction blockArgs knorms =
-    concat <$> S.evalStateT (mapM (\knorm -> (kNormal2Instraction' knorm)) knorms) initState 
+kNormal2Instruction :: [K.Val] ->  [K.KNormal] -> IO [Instruction]
+kNormal2Instruction blockArgs knorms =
+    concat <$> S.evalStateT (mapM (\knorm -> (kNormal2Instruction' knorm)) knorms) initState 
     where
     initState :: Se.Set Text 
     initState = foldr (\arg dict -> Se.insert (K.name arg) dict) (Se.singleton "_return") blockArgs
 
-    allocRef :: K.Val -> InstM [Instraction]
+    allocRef :: K.Val -> InstM [Instruction]
     allocRef (K.Var name type' _) = do
         set <- S.get
         S.put $ Se.insert name set
@@ -134,8 +134,8 @@ kNormal2Instraction blockArgs knorms =
                 
     allocRef _ = return []
 
-    kNormal2Instraction' :: K.KNormal -> InstM [Instraction]
-    kNormal2Instraction' knorm = case knorm of
+    kNormal2Instruction' :: K.KNormal -> InstM [Instruction]
+    kNormal2Instruction' knorm = case knorm of
         (K.Op "+"  r1 r2 r3 _) -> genOpInst Add r1 r2 r3
         (K.Op "-"  r1 r2 r3 _) -> genOpInst Sub r1 r2 r3
         (K.Op "*"  r1 r2 r3 _) -> genOpInst Mul r1 r2 r3
@@ -182,9 +182,9 @@ kNormal2Instraction blockArgs knorms =
                     return $ allocInst ++ [storeInst]
         (K.If condReg retReg cond then' else' _) -> do
             [t,e,c] <- replicateM 3 uniqueText
-            condInsts <- concat <$> mapM kNormal2Instraction' cond
-            thenInsts <- concat <$> mapM kNormal2Instraction' then'
-            elseInsts <- concat <$> mapM kNormal2Instraction' else'
+            condInsts <- concat <$> mapM kNormal2Instruction' cond
+            thenInsts <- concat <$> mapM kNormal2Instruction' then'
+            elseInsts <- concat <$> mapM kNormal2Instruction' else'
 
             crName <- uniqueText
             let loadInst = Load (Reg crName $ typeOf condReg) (val2Ref condReg) (typeOf condReg)
