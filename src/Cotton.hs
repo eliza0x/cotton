@@ -10,7 +10,7 @@ import Cotton.KNormalize
 import Cotton.Closure
 import Cotton.Alpha
 import Cotton.Type
-import Cotton.Emit
+import Cotton.LLVM
 
 -- | 文字列を投げ込めばいい感じにやってくれる
 compile :: String -> IO ()
@@ -45,7 +45,7 @@ compile sourceCode = do
             mapM_ print knorm
             putStrLn "\n=========="
             putStrLn "LLVM IR\n"
-            let llvmir = emit knorm
-            mapM_ print llvmir
+            llvmir <- knorm2llvmir knorm
+            let asm = map show llvmir
+            mapM_ putStrLn asm
 
-            
