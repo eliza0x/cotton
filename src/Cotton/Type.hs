@@ -26,6 +26,7 @@ data Type
 
 instance Show Type where
     show (Type "Int") = "i32"
+    show (Type "Bool") = "i1"
     show (Type "Unit") = "void"
     show (Type t) = unpack t
     show (Type t) = unpack t

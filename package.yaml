@@ -29,6 +29,7 @@ dependencies:
 - containers
 - lens
 - extensible
+- free
 
 library:
   source-dirs: src

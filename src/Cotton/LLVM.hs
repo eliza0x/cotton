@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, FlexibleContexts, DeriveFunctor #-}
 
 module Cotton.LLVM where
 
@@ -6,7 +6,9 @@ import Data.Maybe
 import Control.Monad
 import Data.Text (Text, unpack)
 import Data.Map.Strict ((!), (!?))
+import qualified Data.Set as Se
 import qualified Data.Map.Strict as M
+
 import qualified Text.StringRandom as R
 
 import qualified Control.Monad.State.Strict as S
@@ -15,19 +17,27 @@ import qualified Control.Monad.IO.Class as S
 import qualified Cotton.KNormalize as K
 import qualified Cotton.Type as T
 
+import Control.Monad.Free
+import Control.Monad
+import Data.Monoid
+import Data.Functor
+
 data LLVM_IR 
     = Fun  { label :: Text, retType :: T.Type, args :: [Reg], insts :: [Instraction] }
     | Bind { label :: Text, retType :: T.Type, ival :: Reg }
     deriving Eq
 
 instance Show LLVM_IR where
+    show (Bind l t v)    = "@"++unpack l++" = global "++show t++" "++show v++" align 4\n"
     show (Fun l t as is) = 
         "define "++show t++" @"++unpack l++
         "("++drop 2 (concatMap (\(Reg n t) -> ", "++show t++" %"++unpack n) as)++") "++ 
-        " {"++ addIndent (concatMap (("\n"++) . show) is) ++ 
-        "\tret "++show t++" %_return"++
+        " {\n"++ (concatMap (\i -> indent i ++ show i ++"\n") is) ++ 
+        "\tret "++show t++(if t == T.Type "Unit" then "" else " %_return")++
         "\n}\n"
-    show (Bind l t v)    = "@"++unpack l++" = global "++show t++" "++show v++" align 4\n"
+        where    
+        indent Label{..}  = ""
+        indent _          = "\t"
 
 data Instraction 
     = Alloca { rd   :: Ref,            type' :: T.Type }
@@ -53,10 +63,10 @@ instance Show Instraction where
         (Sub    rd rs rt)    -> undefined
         (Mul    rd rs rt)    -> undefined
         (Div    rd rs rt)    -> undefined
-        (Eqi    rd rs rt)    -> undefined
-        (CBr cond t e)       -> undefined
-        (Br     label')      -> undefined
-        (Label  label')      -> undefined
+        (Eqi    rd rs rt)    -> show rd ++ " = icmp eq i32 "++show rs++", "++show rt
+        (CBr cond t e)       -> "br i1 "++show cond++", label %"++unpack t++", label %"++unpack e
+        (Br     label')      -> "br label %"++unpack label'
+        (Label  label')      -> "\n"++unpack label'++":"
         (Call lbl type' rd args') -> undefined
 
 data Ref = Ref Text T.Type
@@ -81,9 +91,6 @@ instance Show Reg where
     show (GReg t _) = "@"++unpack t -- グローバル変数
     show Null       = "null"   -- 書き込み専用
  
-
-addIndent = unlines . map ("\t"++) . lines
-
 knorm2llvmir :: [K.Block] -> IO [LLVM_IR]
 knorm2llvmir blocks = do
     (ir, insts) <- unzip <$> mapM block2LLVM_IR blocks
@@ -93,37 +100,38 @@ block2LLVM_IR :: K.Block -> IO (LLVM_IR, [Instraction])
 block2LLVM_IR = \case
     K.Fun{..}  -> do
         llvmir <- kNormal2Instraction args knorms
-        return (Fun label btype (map val2Reg args) llvmir, [])
+        let llvmir' = filter isAlloca llvmir ++ filter (not . isAlloca) llvmir
+        return (Fun label btype (map val2Reg args) llvmir', [])
     K.Bind{..} -> do 
         llvmir <- kNormal2Instraction [] knorms
-        return (Bind label btype (initVal btype), llvmir)
+        let llvmir' = filter isAlloca llvmir ++ filter (not . isAlloca) llvmir
+        return (Bind label btype (initVal btype), llvmir')
     where
+    isAlloca Alloca{..} = True
+    isAlloca _          = False
     genDict args = foldr (\(i, arg) dict -> M.insert (K.name arg) i dict) M.empty $ zip [0..] args
     initVal = \case
         T.Type "Int"    -> I32 0
         T.Type "Bool"   -> VBool False
         T.Type "String" -> Str ""
 
-type InstM = S.StateT (M.Map Text Int) IO
+type InstM = S.StateT (Se.Set Text) IO
 
 kNormal2Instraction :: [K.Val] ->  [K.KNormal] -> IO [Instraction]
 kNormal2Instraction args knorms =
-    (header ++) . concat <$> mapM (\knorm -> S.evalStateT (kNormal2Instraction' knorm) initState) knorms
+    (header ++) . concat <$> S.evalStateT (mapM (\knorm -> (kNormal2Instraction' knorm)) knorms) initState 
     where
-    initState :: M.Map Text Int
-    initState = foldr (\(arg, id) dict -> M.insert (K.name arg) id dict) M.empty (zip args [1..])
+    initState :: Se.Set Text 
+    initState = foldr (\arg dict -> Se.insert (K.name arg) dict) (Se.singleton "_return") args
 
     allocRef :: K.Val -> InstM [Instraction]
-    allocRef K.Var{..} = do
-        return [Alloca (Ref name type') type'] 
-        {-
-        isDefined <- isJust . (!? name) <$> S.get
-        if isDefined then do
-            m <- maximum <$> S.get
-            -- S.modify $ M.insert name (m+0)
-            return [Alloca (Ref name type') type'] 
-            else return []
-        -}
+    allocRef (K.Var name type' _) = do
+        set <- S.get
+        S.put $ Se.insert name set
+        if name `Se.member` set then do
+                return []
+            else do
+                return [Alloca (Ref name type') type'] 
     allocRef _ = return []
 
     kNormal2Instraction' :: K.KNormal -> InstM [Instraction]
@@ -151,23 +159,33 @@ kNormal2Instraction args knorms =
             return $ alloc1 ++ catMaybes loadsM ++ [callInst]
         K.Let{..}              -> do
             allocInst <- allocRef val1
-            case val2 of
-                K.Var{..} -> do
+            case (K.name val1, val2) of
+                ("_return", K.Var{..}) -> do
+                    let loadInst = Load (val2Reg val1) (val2Ref val2) (typeOf val2)
+                    return $ allocInst ++ [loadInst]
+                ("_return", _) -> do
+                    refName <- uniqueText
+                    let storeInst = Store (Ref refName (K.type' val2)) (val2Reg val2) (typeOf val2)
+                    let loadInst = Load (val2Reg val1) (Ref refName (K.type' val2)) (typeOf val1)
+                    return $ allocInst ++ [storeInst, loadInst]
+
+                (_, K.Var{..}) -> do
                     regName <- uniqueText
                     let loadInst = Load (Reg regName (typeOf val2)) (val2Ref val2) (typeOf val2)
                     let storeInst = Store (val2Ref val1) (Reg regName (typeOf val2)) (typeOf val1)
                     return $ allocInst ++ [loadInst, storeInst]
-                _ -> do
+                (_, _) -> do
                     let storeInst = Store (val2Ref val1) (val2Reg val2) (typeOf val2)
                     return $ allocInst ++ [storeInst]
         (K.If condReg retReg cond then' else' _) -> do
+            [t,e,c] <- replicateM 3 uniqueText
             condInsts <- concat <$> mapM kNormal2Instraction' cond
             thenInsts <- concat <$> mapM kNormal2Instraction' then'
             elseInsts <- concat <$> mapM kNormal2Instraction' else'
-            return $ condInsts ++ [CBr (val2Reg condReg) "then" "else"] ++ 
-                     [Label "then"] ++ thenInsts ++ [Br "continue"] ++
-                     [Label "else"] ++ elseInsts ++ [Br "continue"] ++
-                     [Label "continue"]
+            return $ condInsts ++ [CBr (val2Reg condReg) ("then_"<>t) ("else_"<>e)] ++ 
+                     [Label ("then_"<>t)] ++ thenInsts ++ [Br ("continue_"<>c)] ++
+                     [Label ("else_"<>e)] ++ elseInsts ++ [Br ("continue_"<>c)] ++
+                     [Label ("continue_"<>c)]
         where
         typeOf = \case
             K.Var{..} -> type'
@@ -180,12 +198,11 @@ kNormal2Instraction args knorms =
 
         genOpInst op r1 r2 r3 = do
             [r2Name, r3Name] <- replicateM 2 uniqueText
-            alloc1 <- allocRef r1
             let (reg2, reg3) = (Reg r2Name (K.type' r2), Reg r3Name (K.type' r3))
             let load2  = Load reg2 (val2Ref r2) (K.type' r2)
             let load3  = Load reg3 (val2Ref r3) (K.type' r3) 
             let opInst = op (val2Ref r1) reg2 reg3
-            return $ alloc1 ++ [load2, load3, opInst]
+            return $ [load2, load3, opInst]
             
     header :: [Instraction]
     header = flip concatMap args $ \arg -> case arg of

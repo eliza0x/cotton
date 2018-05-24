@@ -3,4 +3,5 @@ module Main where
 import Cotton
 
 main :: IO ()
-main = compile =<< getContents
+main = do
+    putStrLn =<< compile =<< getContents

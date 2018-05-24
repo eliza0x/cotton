@@ -126,7 +126,7 @@ knormalize typeEnv = mapM knormalize'
                     E.tellEff #knorm [Let retVar (Var var' type' posm) posm]
             where
             uniqueVarName :: IO Text
-            uniqueVarName = R.stringRandomIO "[a-zA-Z0-9_]{8}"
+            uniqueVarName = R.stringRandomIO "[a-zA-Z][a-zA-Z0-9_]{7}"
 
 instance Show KNormal where
     show (Let v v' _p)      = show v  ++ " = " ++ show v'

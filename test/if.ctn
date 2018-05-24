@@ -1,9 +1,7 @@
 def main(): Int {
-    def a: Int = 1;
-    if 1 == a {
-        a <- 10
+    if 0 == 10 {
+        10
     } else {
-        a <- 20
-    };
-    a + 20
+        20
+    }
 }
