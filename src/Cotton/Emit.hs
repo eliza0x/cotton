@@ -19,8 +19,12 @@ data LLVM_IR
     deriving Eq
 
 instance Show LLVM_IR where
-    show (Fun l t as is) = "define "++show t++" @"++unpack l++"("++drop 2 (concatMap ((", "++) . show) as)++") {"
-                        ++ addIndent (concatMap (("\n"++) . show) is) ++ "}\n"
+    show (Fun l t as is) = 
+        "define "++show t++" @"++unpack l++
+        "("++drop 2 (concatMap (\(TVar n t) -> ", "++show t++" %"++unpack n) as)++") "++ 
+        " {"++ addIndent (concatMap (("\n"++) . show) is) ++ 
+        "\tret "++show t++" %_return"++
+        "\n}\n"
     show (Bind l t v)    = "@"++unpack l++" = global "++show t++" "++show v++" align 4\n"
 
 data Instraction 
@@ -40,18 +44,18 @@ data Instraction
 
 instance Show Instraction where
     show = \case
-        (Alloca rd        type')        -> "%"++show rd ++ " = alloca "++show type'++", align 4"
-        (Store  rd rs     type')        -> undefined
-        (Load   rd rs     type')        -> undefined
-        (Call   rd label' type' args') -> undefined
-        (Add    rd rs rt)               -> undefined
-        (Sub    rd rs rt)               -> undefined
-        (Mul    rd rs rt)               -> undefined
-        (Div    rd rs rt)               -> undefined
-        (Eqi    rd rs rt)               -> undefined
-        (CBr cond then' else')          -> undefined
-        (Br     label')                 -> undefined
-        (Label  label')                 -> undefined
+        (Alloca rd    type') -> show rd ++ " = alloca "++show type'++", align 4"
+        (Store  rd rs type') -> "store "++show type'++" "++show rs++", "++show type'++"* "++show rd++", align 4"
+        (Load   rd rs type') -> show rd ++ " = load "++show type'++", "++show type'++"* "++show rs++", align 4"
+        (Add    rd rs rt)    -> show rd ++ " = add nsw i32 "++show rs++", "++show rt
+        (Sub    rd rs rt)    -> undefined
+        (Mul    rd rs rt)    -> undefined
+        (Div    rd rs rt)    -> undefined
+        (Eqi    rd rs rt)    -> undefined
+        (CBr cond t e)       -> undefined
+        (Br     label')      -> undefined
+        (Label  label')      -> undefined
+        (Call   rd lbl type' args') -> undefined
 
 data Var 
     = VInt Int         -- 数値
@@ -68,8 +72,8 @@ instance Show Var where
     show (VBool True)   = show 1
     show (VBool False)  = show 0
     show (VStr t)       = show t
-    show (TVar t type') = unpack t
-    show (GVar t type') = unpack t -- グローバル変数
+    show (TVar t type') = "%"++unpack t
+    show (GVar t type') = "@"++unpack t -- グローバル変数
     show (Var  n type') = show n   -- 変数、レジスタ番号を管理
     show Null           = "null"   -- 書き込み専用
  
@@ -100,7 +104,6 @@ kNormal2Instraction args knorms = header ++ concatMap (\knorm -> S.evalState (kN
     where
     initState :: M.Map Text Int
     initState = foldr (\(arg, id) dict -> M.insert (K.name arg) id dict) M.empty (zip args [1..])
-
 
     isDefined :: K.Val -> InstM Bool
     isDefined val = isJust . (!? K.name val) <$> S.get

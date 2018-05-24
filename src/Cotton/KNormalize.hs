@@ -53,7 +53,7 @@ type KNormalize = Eff '[ "knorm" >: E.WriterEff [KNormal]
 knormalize :: T.Env -> [Expr] -> IO [Block]
 knormalize typeEnv = mapM knormalize'
     where
-    genReturnVar retType = Var "#return" retType Nothing
+    genReturnVar retType = Var "_return" retType Nothing
 
     runKnormalize :: KNormalize a -> IO [KNormal]
     runKnormalize = E.retractEff
@@ -132,7 +132,7 @@ instance Show KNormal where
     show (Let v v' _p)      = show v  ++ " = " ++ show v'
     show (Op op v1 v2 v3 _) = show v1 ++ " = " ++ show v2  ++ " " ++ unpack op ++ " " ++ show v3
     show (Call v1 l as _)   = show v1 ++ " = " ++ unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
-    show (If cv rv c e e' _) = unlines (map show c) ++ "if #cond {\n" ++ (addIndent . unlines $ map show e) 
+    show (If cv rv c e e' _) = unlines (map show c) ++ "if "++show cv++" {\n" ++ (addIndent . unlines $ map show e) 
                             ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
 
 instance Show Block where

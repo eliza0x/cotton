@@ -51,57 +51,63 @@ newtype ImplicitArgs = ImplicitArgs { _implicitArgs :: Map Text (Set Text) }
     deriving (Show, Eq)
 makeLenses ''ImplicitArgs
 
-type Defined = Set Text
-
 inspectImplicitArgs :: [P.Expr] -> ImplicitArgs
-inspectImplicitArgs exprs  = S.execState (mapM_ (inspectImplicitArgs' "" S.empty) exprs) initState
-    where
-    -- グローバル変数、関数を環境に追加
-    -- TODO: 一段目にETermが来た場合のエラー処理をする
-    initState = ImplicitArgs M.empty
-    global = foldr (\expr set -> S.insert (P.label expr) set) S.empty exprs
+inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label expr) definedVars expr) M.empty exprs
+	where
+	definedVars :: Set Text
+	definedVars = foldr S.union S.empty [globalVars, preDefined]
 
-    inspectImplicitArgs' :: Text
-                         -> Defined
-                         -> P.Expr 
-                         -> State ImplicitArgs Defined
-    inspectImplicitArgs' blockName defined = \case
-        (P.Bind label _ exprs _) -> do
-            let defined = S.insert label S.empty
-            foldM_ (inspectImplicitArgs' label) defined exprs
-            return defined
+	preDefined :: Set Text
+	preDefined = S.fromList ["+", "-", "*", "/", "=="]
 
-        (P.Fun label args type' exprs pos) -> do
-            let defined = (\defined -> foldr (S.insert . P.argName) defined args)
-                               $ S.insert label S.empty
-            foldM_ (inspectImplicitArgs' label) defined exprs
-            return defined
-
-        (P.ETerm term) -> 
-            inspectTerm blockName  defined term
-
-    inspectTerm :: Text 
-                -> Defined
-                -> P.Term
-                -> State ImplicitArgs Defined
-    inspectTerm blockName defined = \case
-        (P.Var var _)         -> defined <$ ifImplisitArgThenAppend var
-        (P.Overwrite var t _) -> inspectTermSub t <* ifImplisitArgThenAppend var
-        (P.Op _ t t' _)       -> inspectTermSub t <* inspectTermSub t'
-        (P.SemiColon t t' _)  -> inspectTermSub t <* inspectTermSub t'
-        (P.Call var ts _)     -> defined <$ mapM_ inspectTermSub ts <* ifImplisitArgThenAppend var
-        (P.If t es es' _)     -> defined <$ inspectTermSub t 
-                                       <* mapM_ inspectImplicitArgsSub es 
-                                       <* mapM_ inspectImplicitArgsSub es'
-        t                   -> return defined
-        where
-        inspectImplicitArgsSub = inspectImplicitArgs' blockName defined
-        inspectTermSub = inspectTerm blockName defined
-        isDefinedCurBlock label = label `S.member` defined
-        ifImplisitArgThenAppend var = 
-            unless (isDefinedCurBlock var) (appendImplisitArg blockName var)
-        appendImplisitArg blockName varName = 
-            implicitArgs %= M.insertWith S.union blockName (S.singleton varName)
+	globalVars :: Set Text
+	globalVars = foldr S.insert S.empty $ map P.label exprs
+	
+	inspectExpr :: Text
+				-> Set Text
+	            -> P.Expr 
+	            -> Map Text (Set Text)
+	            -> Map Text (Set Text)
+	inspectExpr block defined expr undefined = case expr of
+	    (P.Bind label type' exprs _)      -> 
+	        foldr (inspectExpr block defined) undefined exprs
+	    (P.Fun  label args type' exprs _) -> 
+	        foldr (inspectExpr label $ newDict label args) undefined exprs
+	    (P.ETerm term) -> 
+	        inspectTerm block defined undefined term 
+	    where 
+	    newDict l as = foldr (\(P.Arg n t _) dict -> S.insert n dict) (S.singleton l) as
+	
+	inspectTerm :: Text
+				-> Set Text
+	            -> Map Text (Set Text) 
+	            -> P.Term
+	            -> Map Text (Set Text) 
+	inspectTerm block defined undefined term = case term of
+		(P.TInt num _)			   -> undefined
+		(P.Var var _)  			   -> updateDict block var 
+		(P.TStr text _)			   -> undefined
+		(P.Overwrite var term _)   -> inspectTerm block defined (updateDict block var) term
+		(P.Op op term term' _)	   -> let
+			undefined'  = inspectTerm block defined (updateDict block op) term
+			undefined'' = inspectTerm block defined undefined'			  term
+			in undefined''
+		(P.Call var targs _)       -> let
+			undefined'  = updateDict block var
+			undefined'' = foldr (\term undef -> inspectTerm block defined undef term) undefined' targs
+			in undefined
+		(P.SemiColon term term' _) -> (\u -> inspectTerm block defined u term)
+										 $ inspectTerm block defined undefined term
+		(P.If cond exprs exprs' _) -> let
+			undefined1 = inspectTerm block defined undefined cond
+			undefined2 = foldr (inspectExpr block defined) undefined1 exprs
+			undefined3 = foldr (inspectExpr block defined) undefined2 exprs
+			in undefined3
+		where
+		updateDict :: Text -> Text -> Map Text (S.Set Text)
+		updateDict block var = if var `S.notMember` defined 
+			then undefined
+			else M.insertWith S.union block (S.singleton var) undefined 
 
 type Unnest = Writer [Expr]
 
@@ -163,7 +169,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
 addIndent = unlines . map ("\t"++) . lines
 
 instance Show Term where
-    show (TBind l ty t _p)  = concat ["def ",unpack l,": ",show ty," {\n",show t,"}"]
+    show (TBind l ty t _p)  = concat ["def ",unpack l,": ",show ty," {\n",addIndent $ show t,"}"]
     show (TInt n _)         = show n
     show (Var l _t _)       = unpack l
     show (Str t _)          = unpack t
