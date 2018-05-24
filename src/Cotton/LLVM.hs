@@ -43,12 +43,12 @@ data Instraction
     = Alloca { rd   :: Ref,            type' :: T.Type }
     | Store  { rd   :: Ref, rs  :: Reg, type' :: T.Type }
     | Load   { rd'  :: Reg, rs' :: Ref, type' :: T.Type }
-    | Call   { label' :: Text,  type' :: T.Type, rd :: Ref, args' :: [Reg] }
-    | Add    { rd   :: Ref, rs  :: Reg, rt :: Reg }
-    | Sub    { rd   :: Ref, rs  :: Reg, rt :: Reg }
-    | Mul    { rd   :: Ref, rs  :: Reg, rt :: Reg }
-    | Div    { rd   :: Ref, rs  :: Reg, rt :: Reg }
-    | Eqi    { rd   :: Ref, rs  :: Reg, rt :: Reg }
+    | Call   { label' :: Text,  type' :: T.Type, rd' :: Reg, args' :: [Reg] }
+    | Add    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
+    | Sub    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
+    | Mul    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
+    | Div    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
+    | Eqi    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
     | CBr    { cond :: Reg, thenLabel :: Text, elseLabel :: Text }
     | Br     { label' :: Text }
     | Label  { label' :: Text }
@@ -60,14 +60,15 @@ instance Show Instraction where
         (Store  rd rs type') -> "store "++show type'++" "++show rs++", "++show type'++"* "++show rd++", align 4"
         (Load   rd rs type') -> show rd ++ " = load "++show type'++", "++show type'++"* "++show rs++", align 4"
         (Add    rd rs rt)    -> show rd ++ " = add nsw i32 "++show rs++", "++show rt
-        (Sub    rd rs rt)    -> undefined
-        (Mul    rd rs rt)    -> undefined
-        (Div    rd rs rt)    -> undefined
+        (Sub    rd rs rt)    -> show rd ++ " = sub nsw i32 "++show rs++", "++show rt
+        (Mul    rd rs rt)    -> show rd ++ " = mul nsw i32 "++show rs++", "++show rt
+        (Div    rd rs rt)    -> show rd ++ " = div nsw i32 "++show rs++", "++show rt
         (Eqi    rd rs rt)    -> show rd ++ " = icmp eq i32 "++show rs++", "++show rt
         (CBr cond t e)       -> "br i1 "++show cond++", label %"++unpack t++", label %"++unpack e
         (Br     label')      -> "br label %"++unpack label'
         (Label  label')      -> "\n"++unpack label'++":"
-        (Call lbl type' rd args') -> undefined
+        (Call lbl type' rd args') -> show rd++" = call "++show type'++" @"++unpack lbl++
+                                    "("++drop 2 (concatMap (\(Reg n t) -> ", "++show t++" %"++unpack n) args')++") "
 
 data Ref = Ref Text T.Type
     deriving Eq
@@ -118,20 +119,19 @@ block2LLVM_IR = \case
 type InstM = S.StateT (Se.Set Text) IO
 
 kNormal2Instraction :: [K.Val] ->  [K.KNormal] -> IO [Instraction]
-kNormal2Instraction args knorms =
-    (header ++) . concat <$> S.evalStateT (mapM (\knorm -> (kNormal2Instraction' knorm)) knorms) initState 
+kNormal2Instraction blockArgs knorms =
+    concat <$> S.evalStateT (mapM (\knorm -> (kNormal2Instraction' knorm)) knorms) initState 
     where
     initState :: Se.Set Text 
-    initState = foldr (\arg dict -> Se.insert (K.name arg) dict) (Se.singleton "_return") args
+    initState = foldr (\arg dict -> Se.insert (K.name arg) dict) (Se.singleton "_return") blockArgs
 
     allocRef :: K.Val -> InstM [Instraction]
     allocRef (K.Var name type' _) = do
         set <- S.get
         S.put $ Se.insert name set
-        if name `Se.member` set then do
-                return []
-            else do
-                return [Alloca (Ref name type') type'] 
+        if name `Se.member` set then return []
+                                else return [Alloca (Ref name type') type']  
+                
     allocRef _ = return []
 
     kNormal2Instraction' :: K.KNormal -> InstM [Instraction]
@@ -141,40 +141,33 @@ kNormal2Instraction args knorms =
         (K.Op "*"  r1 r2 r3 _) -> genOpInst Mul r1 r2 r3
         (K.Op "/"  r1 r2 r3 _) -> genOpInst Div r1 r2 r3
         (K.Op "==" r1 r2 r3 _) -> genOpInst Eqi r1 r2 r3
-        (K.Op fun  r1 r2 r3 _) -> do
-            alloc1 <- allocRef r1
-            [r2Name, r3Name] <- replicateM 2 uniqueText
-            let (reg2, reg3) = (Reg r2Name (typeOf r2), Reg r3Name (typeOf r3))
-            let load2  = Load reg2 (val2Ref r2) (typeOf r2)
-            let load3  = Load reg3 (val2Ref r3) (typeOf r3) 
-            let callInst = Call fun (typeOf r1) (val2Ref r1) [reg2,reg2]
-            return $ alloc1 ++ [load2, load3, callInst]
-        (K.Call r1 fun args _) -> do
-            alloc1 <- allocRef r1
-            names <- replicateM (length args) uniqueText
-            let (args', loadsM) = unzip $ flip map (zip names args) (\(newName, arg) -> case arg of
-                    K.Var{..} -> (Reg newName type', Just $ Load (Reg newName type') (Ref name type') type') 
-                    v         -> (val2Reg v, Nothing))
-            let callInst = Call fun (typeOf r1) (val2Ref r1) args'
-            return $ alloc1 ++ catMaybes loadsM ++ [callInst]
+        (K.Op fun  r1 r2 r3 _) -> genCallInst fun r1 [r2,r3]
+        (K.Call r1 fun args _) -> genCallInst fun r1 args
         K.Let{..}              -> do
             allocInst <- allocRef val1
-            case (K.name val1, val2) of
-                ("_return", K.Var{..}) -> do
+            case (K.name val1, isArg val2, val2) of
+                -- 返り値は値のため
+                ("_return", _, K.Var{..}) -> do
                     let loadInst = Load (val2Reg val1) (val2Ref val2) (typeOf val2)
                     return $ allocInst ++ [loadInst]
-                ("_return", _) -> do
+                ("_return", _, _) -> do
                     refName <- uniqueText
                     let storeInst = Store (Ref refName (K.type' val2)) (val2Reg val2) (typeOf val2)
                     let loadInst = Load (val2Reg val1) (Ref refName (K.type' val2)) (typeOf val1)
                     return $ allocInst ++ [storeInst, loadInst]
 
-                (_, K.Var{..}) -> do
+                -- 引数は参照ではなく値で与えられるため 
+                (_, True, K.Var{..}) -> do
+                    regName <- uniqueText
+                    let storeInst = Store (val2Ref val1) (val2Reg val2) (typeOf val1)
+                    return $ allocInst ++ [storeInst]
+
+                (_, _, K.Var{..}) -> do
                     regName <- uniqueText
                     let loadInst = Load (Reg regName (typeOf val2)) (val2Ref val2) (typeOf val2)
                     let storeInst = Store (val2Ref val1) (Reg regName (typeOf val2)) (typeOf val1)
                     return $ allocInst ++ [loadInst, storeInst]
-                (_, _) -> do
+                (_, _, _) -> do
                     let storeInst = Store (val2Ref val1) (val2Reg val2) (typeOf val2)
                     return $ allocInst ++ [storeInst]
         (K.If condReg retReg cond then' else' _) -> do
@@ -182,11 +175,18 @@ kNormal2Instraction args knorms =
             condInsts <- concat <$> mapM kNormal2Instraction' cond
             thenInsts <- concat <$> mapM kNormal2Instraction' then'
             elseInsts <- concat <$> mapM kNormal2Instraction' else'
-            return $ condInsts ++ [CBr (val2Reg condReg) ("then_"<>t) ("else_"<>e)] ++ 
+
+            crName <- uniqueText
+            let loadInst = Load (Reg crName $ typeOf condReg) (val2Ref condReg) (typeOf condReg)
+            return $ 
+                     condInsts ++ [loadInst, CBr (Reg crName $ typeOf condReg) ("then_"<>t) ("else_"<>e)] ++ 
                      [Label ("then_"<>t)] ++ thenInsts ++ [Br ("continue_"<>c)] ++
                      [Label ("else_"<>e)] ++ elseInsts ++ [Br ("continue_"<>c)] ++
                      [Label ("continue_"<>c)]
         where
+        isArg (K.Var name _ _) = name `elem` map K.name blockArgs
+        isArg _                = False
+
         typeOf = \case
             K.Var{..} -> type'
             K.NullVar -> T.Bottom
@@ -196,19 +196,39 @@ kNormal2Instraction args knorms =
         uniqueText :: InstM Text
         uniqueText = S.liftIO $ R.stringRandomIO "[a-zA-Z][a-zA-Z0-9_]{7}"
 
+
+        genCallInst funName (K.Var "_return" type' _) args = do
+            let rd = K.Var "_return" type' Nothing
+            names <- replicateM (length args) uniqueText
+            let (args', loadsM) = unzip $ flip map (zip names args) (\(newName, arg) -> case arg of
+                    K.Var{..} -> (Reg newName type', Just $ Load (Reg newName type') (Ref name type') type') 
+                    v         -> (val2Reg v, Nothing))
+            allocInst <- allocRef rd
+            let callInst = Call funName (typeOf rd) (val2Reg rd) args'
+            return $ allocInst ++ catMaybes loadsM ++ [callInst]
+
+        genCallInst funName rd args = do
+            names <- replicateM (length args) uniqueText
+            let (args', loadsM) = unzip $ flip map (zip names args) (\(newName, arg) -> case arg of
+                    K.Var{..} -> (Reg newName type', Just $ Load (Reg newName type') (Ref name type') type') 
+                    v         -> (val2Reg v, Nothing))
+            regName <- uniqueText
+            allocInst <- allocRef rd
+            let callInst = Call funName (typeOf rd) (Reg regName (typeOf rd)) args'
+            let storeInst = Store (val2Ref rd) (Reg regName (typeOf rd)) (typeOf rd)
+            return $ allocInst ++ catMaybes loadsM ++ [callInst, storeInst]
+
         genOpInst op r1 r2 r3 = do
-            [r2Name, r3Name] <- replicateM 2 uniqueText
-            let (reg2, reg3) = (Reg r2Name (K.type' r2), Reg r3Name (K.type' r3))
-            let load2  = Load reg2 (val2Ref r2) (K.type' r2)
-            let load3  = Load reg3 (val2Ref r3) (K.type' r3) 
-            let opInst = op (val2Ref r1) reg2 reg3
-            return $ [load2, load3, opInst]
-            
-    header :: [Instraction]
-    header = flip concatMap args $ \arg -> case arg of
-        K.Var{..} -> [Alloca (Ref name type') type', Store (Ref name type') (val2Reg arg) type']
-        v         -> error $ show v
-    
+            names <- replicateM 2 uniqueText
+            let ([reg2, reg3], loadsM) = unzip $ flip map (zip names [r2,r3]) (\(newName, arg) -> case arg of
+                    K.Var{..} -> (Reg newName type', Just $ Load (Reg newName type') (Ref name type') type') 
+                    v         -> (val2Reg v, Nothing))
+            regName <- uniqueText
+            allocInst <- allocRef r1
+            let opInst = op (Reg regName $ typeOf r1) reg2 reg3
+            let storeInst = Store (val2Ref r1) (Reg regName $ typeOf r1) (typeOf r1)
+            return $ allocInst ++ catMaybes loadsM ++ [opInst, storeInst]
+
 val2Reg :: K.Val -> Reg
 val2Reg = \case
     K.Var{..} -> Reg name type'

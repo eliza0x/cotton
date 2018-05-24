@@ -5,3 +5,7 @@ def fact(n: Int): Int {
         n * fact(n-1)
     }
 }
+
+def main(): Int {
+    fact(5)
+}

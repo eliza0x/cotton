@@ -27,6 +27,10 @@ import qualified Data.Map.Strict as M
 import Data.Set (Set)
 import qualified Data.Set as S
 
+import qualified Data.List as L
+
+import Debug.Trace
+
 data Expr
     = Fun       { elabel :: Text, eargs  :: [Arg], etype :: T.Type, eterms :: [Term], epos :: L.AlexPosn }
     | Bind      { elabel :: Text, etype :: T.Type, eterms :: [Term],                    epos :: L.AlexPosn }
@@ -58,7 +62,7 @@ inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label 
 	definedVars = foldr S.union S.empty [globalVars, preDefined]
 
 	preDefined :: Set Text
-	preDefined = S.fromList ["+", "-", "*", "/", "=="]
+	preDefined = S.fromList ["+", "-", "*", "/", "==", "print"]
 
 	globalVars :: Set Text
 	globalVars = foldr S.insert S.empty $ map P.label exprs
@@ -76,7 +80,7 @@ inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label 
 	    (P.ETerm term) -> 
 	        inspectTerm block defined undefined term 
 	    where 
-	    newDict l as = foldr (\(P.Arg n t _) dict -> S.insert n dict) (S.singleton l) as
+	    newDict l as = definedVars `S.union` foldr (\(P.Arg n t _) dict -> S.insert n dict) (S.singleton l) as
 	
 	inspectTerm :: Text
 				-> Set Text
@@ -105,7 +109,7 @@ inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label 
 			in undefined3
 		where
 		updateDict :: Text -> Text -> Map Text (S.Set Text)
-		updateDict block var = if var `S.notMember` defined 
+		updateDict block var = if var `S.member` defined 
 			then undefined
 			else M.insertWith S.union block (S.singleton var) undefined 
 
@@ -129,7 +133,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
         (P.Fun l as t exprs p) -> do
             exprs' <- M.catMaybes <$> mapM unnest' exprs
             let impArgs = M.maybe [] S.elems (implicitArgs!?l)
-            let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
+            let args = L.nub $ map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
             W.tell [Fun l args (T.Type t) exprs' p]
             return Nothing
         (P.ETerm term) -> error "error" -- グローバルに式が存在？

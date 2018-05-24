@@ -1,0 +1,7 @@
+def f(n: Int): Int {
+    n + 10
+}
+
+def main(): Int {
+    f(10)
+}
