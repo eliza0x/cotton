@@ -1,36 +1,58 @@
+{-|
+Module      : Cotton.Alpha
+Description : alpha convert
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+
+alpha変換はソースコード内に現れる変数名をuniqueな物に変換します。
+
+@
+def f():Int {
+    def n = 123;
+    def g():Int {
+        def n = 123;
+        n
+    }
+}
+@
+
+このコードは以下のように変換されます。
+
+@
+def f():Int {
+    def f_n = 123;
+    def f_g():Int {
+        def f_g_n = 123;
+        f_g_n
+    }
+}
+@
+
+-}
+
 {-# LANGUAGE RecordWildCards, OverloadedStrings, FlexibleContexts, TemplateHaskell, LambdaCase #-}
 
 module Cotton.Alpha where
 
-import Control.Lens 
-import Control.Monad
-import qualified Data.Maybe as M
-
-import Cotton.Parser ()
 import qualified Cotton.Parser as P
-import qualified Cotton.Lexer as L
+
+import Control.Monad
+import Data.Monoid ((<>))
+import Control.Lens 
+
+import qualified Data.Maybe as M
+import Data.Text (Text(..), unpack)
+import qualified Data.Text as T
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 
 import Control.Monad.State.Strict (State(..))
 import qualified Control.Monad.State.Strict as S
 
-import Control.Monad.Writer.Strict (Writer(..))
-import qualified Control.Monad.Writer.Strict as W
-
-import Data.Text (Text(..), unpack)
-import qualified Data.Text as T
-
-import Data.Monoid ((<>))
-
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
-import Data.Set (Set)
-import qualified Data.Set as S
-
-
-import Debug.Trace
-
-data AlphaEnv = AlphaEnv {
-    _prefix :: Text,                  -- ^ プレフィックス
+newtype AlphaEnv = AlphaEnv {
     _rewrittenVarName :: Map Text Text -- ^ 変数の書き換え後の名前
     } deriving (Show, Eq)
 makeLenses ''AlphaEnv
@@ -39,56 +61,53 @@ type Alpha = State AlphaEnv
 
 -- | Alpha変換
 alpha :: [P.Stmt] -> [P.Stmt]
-alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
+alpha stmts = map (\stmt -> S.evalState (alpha' "" stmt) initState) stmts
     where 
-    initState = AlphaEnv "" global
+    initState = AlphaEnv global
     -- グローバル変数、関数を環境に追加
     -- TODO: 一段目にETerm来た場合のエラー処理をする
-    global = foldr (\expr dic -> M.insert (P.label expr) (P.label expr) dic) M.empty exprs
-    alpha' :: P.Stmt -> Alpha P.Stmt
-    alpha' = \case
-        (P.Bind label' type' expr' pos) -> do
-            curPrefix <- use prefix
-            -- 現在のprefixを変数名に追加
-            label <- appendPrefix label'
-            -- prefixに現在の変数名を追加
-            updatePrefix label
+    global = foldr (\stmt dic -> M.insert (P.label stmt) (P.label stmt) dic) M.empty stmts
+    alpha' :: Text -> P.Stmt -> Alpha P.Stmt
+    alpha' prefix = \case
+        (P.Bind label' type' stmt' pos) -> do
+            -- prefixを変数名に追加
+            let label = prefix <+> label'
             -- 辞書に更新前の変数名と更新後の変数名の対応を追加
             updateDict label' label
             -- 再起的に更新、環境を引き継ぐ
-            expr  <- mapM alpha' expr'
+            stmt  <- mapM (alpha' label) stmt'
             -- スコープから出たのでprefixをリセット
-            updatePrefix curPrefix
             return P.Bind{..}
-        (P.Fun label' args' type' expr' pos) -> do
-            curPrefix <- use prefix
-            label <- appendPrefix label'
-            updatePrefix label
-            -- 引数の変数名を対応した物に変換
-            args <- flip mapM args' (\arg -> do
-                arg' <- appendPrefix $ P.argName arg
+
+        (P.Fun label' args' type' stmt' pos) -> do
+            let label = prefix <+> label'
+            updateDict label' label
+            -- 引数の変数名にprefixを追加
+            args <- forM args' (\arg -> do
+                let arg' = label <+> P.argName arg
                 updateDict (P.argName arg) arg'
                 return $ P.Arg arg' (P.type'' arg) (P.apos arg)) 
-            updateDict label' label
-            expr  <- mapM alpha' expr'
-            updatePrefix curPrefix
+            stmt  <- mapM (alpha' label) stmt'
             return P.Fun{..}
-        (P.ETerm term) -> P.ETerm <$> alphaTerm term
+
+        (P.ETerm term) -> P.ETerm <$> alphaTerm prefix term
         where
         infixSeparator = "_" -- "#"
-        appendPrefix label = uses prefix (\pre -> if T.null pre then pre <> label else pre <> "_" <> label)
-        updatePrefix label = prefix .= label
+        t <+> t' = if T.null t then t<>t' else t<>infixSeparator<>t'
         updateDict key val = rewrittenVarName %= M.insert key val
     
-    alphaTerm :: P.Term -> Alpha P.Term
-    alphaTerm = \case
-        (P.Var var pos)              -> flip P.Var pos <$> findDict var
-        (P.Overwrite var term pos)   -> P.Overwrite <$> findDict var <*> alphaTerm term <*> pure pos
-        (P.Op op term term' pos)     -> P.Op op <$> alphaTerm term <*> alphaTerm term'  <*> pure pos
-        (P.Call var args pos)        -> P.Call <$> findDict var <*> mapM alphaTerm args <*> pure pos
-        (P.SemiColon term term' pos) -> P.SemiColon <$> alphaTerm term <*> alphaTerm term' <*> pure pos
-        (P.If cond exprs exprs' pos) -> P.If <$> alphaTerm cond <*> mapM alpha' exprs <*> mapM alpha' exprs' <*> pure pos
-        t                          -> return t
+    -- 変数名を書き換え後の物で置き換える
+    alphaTerm :: Text -> P.Term -> Alpha P.Term
+    alphaTerm prefix = \case
+        (P.Var var pos)              -> P.Var <$> findDict var <*> pure pos
+        (P.Overwrite var term pos)   -> P.Overwrite <$> findDict var <*> alphaTerm prefix term <*> pure pos
+        (P.Op op term term' pos)     -> P.Op op <$> alphaTerm prefix term <*> alphaTerm prefix term'  <*> pure pos
+        (P.Call var args pos)        -> P.Call <$> findDict var <*> mapM (alphaTerm prefix) args <*> pure pos
+        (P.SemiColon term term' pos) -> P.SemiColon <$> alphaTerm prefix term <*> alphaTerm prefix term' <*> pure pos
+        (P.If cond stmts stmts' pos) -> P.If <$> alphaTerm prefix cond 
+                                             <*> mapM (alpha' prefix) stmts 
+                                             <*> mapM (alpha' prefix) stmts' <*> pure pos
+        t -> return t
         where
         findDict key = do
             valM <- uses rewrittenVarName (M.lookup key)

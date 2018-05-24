@@ -75,7 +75,7 @@ knormalize typeEnv = mapM knormalize'
         valType = \case
             Var{..} -> type'
             NullVar -> T.Bottom
-            Num{..} -> T.Type "Int"
+            Num{..} -> T.Type "I32"
             Str{..} -> T.Type "String" 
 
         knormalizeTerm' :: Val -> C.Term -> KNormalize ()
@@ -98,8 +98,6 @@ knormalize typeEnv = mapM knormalize'
                 -- 式の返り値を変数名にすることで代入先を決定
                 let var' = Var var type' Nothing
                 knormalizeTerm' var' term
-                -- when (retVar /= NullVar) $
-                --     E.tellEff #knorm [Let retVar var' (Just pos)]
             C.Op{..}  -> do
                 let T.Func [t, t'] _ = fromMaybe (error $ "undefined operator: " ++ unpack op) $ typeOf !? op
 
@@ -111,7 +109,7 @@ knormalize typeEnv = mapM knormalize'
                 E.tellEff #knorm [Op op retVar var var' (Just pos)]
             C.Call{..} -> do
                 args <- E.liftEff #io $ mapM (const uniqueVarName) [1..length targs] 
-                let T.Func types _ = fromMaybe (error $ "undefined function name: " ++ unpack var) $ typeOf !? var
+                let T.Func types _ = fromMaybe (error $ "undefined argsments: " ++ show args) $ typeOf !? var
                 forM_ (zip3 targs args types) $ \(term, argName, type') ->
                     knormalizeTerm' (Var argName type' (Just pos)) term
                 let valArgs = map (\(arg, type') -> Var arg type' (Just pos)) $ zip args types

@@ -43,8 +43,8 @@ tokens :-
     """ $labelchar* """                 { tok (\p s -> Str (StrP (T.pack s) p))   }
     $digit+                             { tok (\p s -> Num  (NumP (read s) p))    }
     $opchar+                            { tok (\p s -> Op   (StrP (T.pack s) p))  }
-    $lower [$alpha \' \_ \?]* \!?       { tok (\p s -> Lower (StrP (T.pack s) p)) }
-    $upper [$alpha \' \_ \?]* \!?       { tok (\p s -> Upper (StrP (T.pack s) p)) }
+    $lower [$labelchar \' \_ \?]* \!?       { tok (\p s -> Lower (StrP (T.pack s) p)) }
+    $upper [$labelchar \' \_ \?]* \!?       { tok (\p s -> Upper (StrP (T.pack s) p)) }
 
 {
 tok f p s = f p s

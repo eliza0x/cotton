@@ -112,7 +112,7 @@ block2LLVM_IR = \case
     isAlloca _          = False
     genDict args = foldr (\(i, arg) dict -> M.insert (K.name arg) i dict) M.empty $ zip [0..] args
     initVal = \case
-        T.Type "Int"    -> I32 0
+        T.Type "I32"    -> I32 0
         T.Type "Bool"   -> VBool False
         T.Type "String" -> Str ""
 
@@ -146,15 +146,25 @@ kNormal2Instraction blockArgs knorms =
         K.Let{..}              -> do
             allocInst <- allocRef val1
             case (K.name val1, isArg val2, val2) of
+                -- 返り値は値であり、引数は値であるため
+                ("_return", True, _) -> do
+                    refName <- uniqueText
+                    allocInst' <- allocRef (K.Var refName (typeOf val2) Nothing)
+                    let storeInst = Store (Ref refName (K.type' val2)) (val2Reg val2) (typeOf val2)
+                    let loadInst = Load (val2Reg val1) (Ref refName (K.type' val2)) (typeOf val1)
+                    return $ allocInst ++ allocInst' ++ [storeInst, loadInst]
+               
                 -- 返り値は値のため
                 ("_return", _, K.Var{..}) -> do
                     let loadInst = Load (val2Reg val1) (val2Ref val2) (typeOf val2)
                     return $ allocInst ++ [loadInst]
+
                 ("_return", _, _) -> do
                     refName <- uniqueText
+                    allocInst' <- allocRef (K.Var refName (typeOf val2) Nothing)
                     let storeInst = Store (Ref refName (K.type' val2)) (val2Reg val2) (typeOf val2)
                     let loadInst = Load (val2Reg val1) (Ref refName (K.type' val2)) (typeOf val1)
-                    return $ allocInst ++ [storeInst, loadInst]
+                    return $ allocInst ++ allocInst' ++ [storeInst, loadInst]
 
                 -- 引数は参照ではなく値で与えられるため 
                 (_, True, K.Var{..}) -> do
@@ -190,7 +200,7 @@ kNormal2Instraction blockArgs knorms =
         typeOf = \case
             K.Var{..} -> type'
             K.NullVar -> T.Bottom
-            K.Num{..} -> T.Type "Int"
+            K.Num{..} -> T.Type "I32"
             K.Str{..} -> T.Type "String"
 
         uniqueText :: InstM Text

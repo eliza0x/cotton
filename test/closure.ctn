@@ -1,7 +1,7 @@
-def f(n: Int): Int {
-    def m: Int = 123;
-    def g(): Int {
-        def m: Int = 456;
+def f(n: I32): I32 {
+    def m: I32 = 123;
+    def g(): I32 {
+        def m: I32 = 456;
         n
     }
     g()
