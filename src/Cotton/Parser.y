@@ -68,20 +68,20 @@ Stmts2  : Bind Stmts2            { fst $1 : $2 }
         | Fun  Stmts2            { fst $1 : $2 }
         | Terms Stmts2           { ETerm (fst $1) : $2 }
         | Terms                  { [ETerm (fst $1)] }
-        | Bind                   {% fail $ "expression must be finish term." ++ show (snd $1) }
-        | Fun                    {% fail $ "expression must be finish term." ++ show (snd $1) }
+        | Bind                   {% fail $ "statement must be finish term." ++ show (snd $1) }
+        | Fun                    {% fail $ "statement must be finish term." ++ show (snd $1) }
 
 Bind :: { (Stmt, CL.AlexPosn) }
 Bind    : def Lower ':' Upper '=' Term ';'   
-        { (Bind { label = fst $2, type' = fst $4, expr = [ETerm $ fst $6], pos = CL.pos $1 }, CL.pos $1) }
+        { (Bind { label = fst $2, type' = fst $4, stmt = [ETerm $ fst $6], pos = CL.pos $1 }, CL.pos $1) }
         | def Lower ':' Upper '{' Stmts2 '}' 
-        { (Bind { label = fst $2, type' = fst $4, expr = $6,               pos = CL.pos $1 }, CL.pos $1) }
+        { (Bind { label = fst $2, type' = fst $4, stmt = $6,               pos = CL.pos $1 }, CL.pos $1) }
 
 Fun :: { (Stmt, CL.AlexPosn) }
 Fun     : def Lower '(' Args ')' ':' Upper '=' Term ';'
-        { (Fun { label = fst $2 , args = $4, type' = fst $7, expr = [ETerm $ fst $9], pos = CL.pos $1 }, CL.pos $1) }
+        { (Fun { label = fst $2 , args = $4, type' = fst $7, stmt = [ETerm $ fst $9], pos = CL.pos $1 }, CL.pos $1) }
         | def Lower '(' Args ')' ':' Upper '{' Stmts2 '}'
-        { (Fun { label = fst $2 , args = $4, type' = fst $7, expr  = $9,        pos = CL.pos $1 }, CL.pos $1) }
+        { (Fun { label = fst $2 , args = $4, type' = fst $7, stmt  = $9,        pos = CL.pos $1 }, CL.pos $1) }
 
 -- | 式
 Terms   :: { (Term, CL.AlexPosn) } 
@@ -90,7 +90,8 @@ Terms   : Term ';' Terms        { (SemiColon {term = fst $1, term' = fst $3}, sn
 
 Term   :: { (Term, CL.AlexPosn) } 
 Term    : if Term '{' Stmts2 '}' else '{' Stmts2 '}' 
-                                    { (If {cond = fst $2, texprs = $4, texprs' = $8, tpos = CL.pos $1 }, CL.pos $1) }
+                                    { (If {cond = fst $2, tstmts = $4,
+                                    tstmts' = $8, tpos = CL.pos $1 }, CL.pos $1) }
         | Lower '<-' Term           { (Overwrite (fst $1) (fst $3) (snd $1), snd $1) }
         | Lower '(' Calls ')'       { (Call { var = fst $1, targs = $3, tpos = snd $1 }, snd $1) }
         | '(' Term ')'              { (fst $2, snd $2) }
@@ -148,8 +149,8 @@ Upper   : type  { (CL.text $1, CL.pos $1) }
 
 -- | 文
 data Stmt =
-      Bind { label :: Text, type' :: Text, expr :: [Stmt], pos :: CL.AlexPosn  }
-    | Fun  { label :: Text, args  :: [Arg], type' :: Text, expr :: [Stmt], pos ::CL.AlexPosn }
+      Bind { label :: Text, type' :: Text, stmt :: [Stmt], pos :: CL.AlexPosn  }
+    | Fun  { label :: Text, args  :: [Arg], type' :: Text, stmt :: [Stmt], pos ::CL.AlexPosn }
     | ETerm Term
     deriving Eq
 
@@ -162,7 +163,7 @@ data Term
     | Op        { op   :: Text, term   :: Term,   term'   :: Term, tpos :: CL.AlexPosn }   -- 演算子
     | Call      { var  :: Text, targs  :: [Term], tpos    :: CL.AlexPosn }                 -- Call
     | SemiColon { term :: Term, term'  :: Term,   tpos    :: CL.AlexPosn }                 -- 連結
-    | If        { cond :: Term, texprs :: [Stmt], texprs' :: [Stmt], tpos :: CL.AlexPosn } -- if式
+    | If        { cond :: Term, tstmts :: [Stmt], tstmts' :: [Stmt], tpos :: CL.AlexPosn } -- if式
     deriving Eq
 
 data Arg = Arg { argName :: Text, type'' :: Maybe Text, apos :: CL.AlexPosn }

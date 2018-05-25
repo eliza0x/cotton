@@ -39,7 +39,7 @@ data Env = Env { _typeOf :: Map Text Type }
 makeLenses ''Env
 
 typeCheck :: [Stmt] -> Env
-typeCheck exprs = S.execState (mapM_ typeCheck' exprs) initState
+typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
     where
     initState = Env $ M.fromList [ ("+",  Func [Type "I32", Type "I32"] (Type "I32"))
                                  , ("-",  Func [Type "I32", Type "I32"] (Type "I32"))
@@ -52,13 +52,13 @@ typeCheck' :: Stmt -> EnvM Type
 typeCheck' = \case
     Bind{..} -> do 
         updateEnv label (Type type')
-        type'' <- last <$> mapM typeCheck' expr 
+        type'' <- last <$> mapM typeCheck' stmt
         when (Type type' /= type'') $ error "type error."
         return type''
     Fun{..}  -> do 
         checkArgs args
         updateEnv label (Func (map (Type . fromJust . P.type'') args) $ Type type') 
-        types <- mapM typeCheck' expr
+        types <- mapM typeCheck' stmt
         when (Type type' /= last types) $  do
             (error $ "type error.\nactual type: "++show (last types)
                             ++"\nexpected type: "++show type'
@@ -101,8 +101,8 @@ typeCheck'' = \case
     If{..}          -> do
         condType <- typeCheck'' cond
         when (condType /= Type "Bool") $ error "type error."
-        thenType <- last <$> mapM typeCheck' texprs
-        elseType <- last <$> mapM typeCheck' texprs'
+        thenType <- last <$> mapM typeCheck' tstmts
+        elseType <- last <$> mapM typeCheck' tstmts'
         when (thenType /= elseType) $ error "type error."
         return thenType
     where
