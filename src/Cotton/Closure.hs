@@ -96,7 +96,7 @@ implicitArgsBy :: ImplicitArgs -> Text -> [Text]
 implicitArgsBy (Imp d) blockName = S.elems . M.fromMaybe S.empty $ d M.!? blockName
 
 closure :: T.Env -> [P.Stmt] -> [Stmt]
-closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
+closure typeEnv exprs = concatMap (W.execWriter . unnest) exprs
     where
     implicitArgs = inspectImplicitArgs exprs
     
@@ -154,9 +154,10 @@ addIndent = unlines . map ("\t"++) . lines
 
 appendImplicitArgs :: T.Env -> ImplicitArgs -> T.Env
 appendImplicitArgs (T.Env dict) imp = T.Env $ M.mapWithKey (\name type' -> case type' of
-    T.Func args retType -> T.Func (map T.Type (imp `implicitArgsBy` name) ++ args) retType
+    T.Func args retType -> T.Func (map typeOf (imp `implicitArgsBy` name) ++ args) retType
     t -> t) dict
-
+    where
+    typeOf n = dict M.! n
 
 instance Show Term where
     show (TBind l ty t _p)  = concat ["def ",unpack l,": ",show ty," {\n",addIndent $ show t,"}"]
