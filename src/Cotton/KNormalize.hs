@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, DataKinds, TypeOperators, PolyKinds, FlexibleContexts, LambdaCase, RecordWildCards, TypeApplications, OverloadedStrings, OverloadedLabels #-}
+{-# LANGUAGE DataKinds, TypeOperators, LambdaCase, RecordWildCards, TypeApplications, OverloadedStrings, OverloadedLabels #-}
 {-# OPTIONS_GHC -fno-warn-simplifiable-class-constraints#-}
 
 module Cotton.KNormalize where
