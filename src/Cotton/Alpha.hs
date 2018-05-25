@@ -53,7 +53,7 @@ import Control.Monad.State.Strict (State(..))
 import qualified Control.Monad.State.Strict as S
 
 newtype AlphaEnv = AlphaEnv {
-    _rewritedVarName :: Map Text Text -- ^ 変数の書き換え後の名前
+    _rewrittenVarName :: Map Text Text -- ^ 変数の書き換え後の名前
     } deriving (Show, Eq)
 makeLenses ''AlphaEnv
 
@@ -92,9 +92,9 @@ alpha stmts = map (\stmt -> S.evalState (alpha' "" stmt) initState) stmts
 
         (P.ETerm term) -> P.ETerm <$> alphaTerm prefix term
         where
-        infixSeparetar = "_" -- "#"
-        t <+> t' = if T.null t then t<>t' else t<>infixSeparetar<>t'
-        updateDict key val = rewritedVarName %= M.insert key val
+        infixSeparator = "_" -- "#"
+        t <+> t' = if T.null t then t<>t' else t<>infixSeparator<>t'
+        updateDict key val = rewrittenVarName %= M.insert key val
     
     -- 変数名を書き換え後の物で置き換える
     alphaTerm :: Text -> P.Term -> Alpha P.Term
@@ -110,10 +110,10 @@ alpha stmts = map (\stmt -> S.evalState (alpha' "" stmt) initState) stmts
         t -> return t
         where
         findDict key = do
-            valM <- uses rewritedVarName (M.lookup key)
+            valM <- uses rewrittenVarName (M.lookup key)
             case valM of
                 Just val -> return val
                 Nothing  -> do
                     error $ show key ++ " is not found."
-                    error . show . _rewritedVarName <$> S.get  -- ここにmonad failを入れたい
+                    error . show . _rewrittenVarName <$> S.get  -- ここにmonad failを入れたい
 
