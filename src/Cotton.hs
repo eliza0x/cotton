@@ -33,8 +33,8 @@ compile sourceCode = do
             print typeEnv
             putStrLn "\n=========="
             putStrLn "暗黙引数検査\n"
-            let its' = inspectImplicitArgs ts'
-            print its'
+            let implicitArgs = inspectImplicitArgs ts'
+            print implicitArgs
             putStrLn "\n=========="
             putStrLn "Clojure変換\n"
             let cts = closure typeEnv ts'

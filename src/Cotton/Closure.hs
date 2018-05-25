@@ -1,35 +1,26 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, FlexibleContexts, TemplateHaskell, LambdaCase #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, LambdaCase, DeriveFunctor, FlexibleContexts #-}
 
 module Cotton.Closure where
 
-import Control.Lens 
-import Control.Monad
-import qualified Data.Maybe as M
-
-import Cotton.Parser ()
 import qualified Cotton.Parser as P
 import qualified Cotton.Lexer as L
 import qualified Cotton.Type as T
 
-import Control.Monad.State.Strict (State(..))
-import qualified Control.Monad.State.Strict as S
-
-import Control.Monad.Writer.Strict (Writer(..))
-import qualified Control.Monad.Writer.Strict as W
-
 import Data.Text (Text(..), unpack)
 import qualified Data.Text as T
 
-import Data.Monoid ((<>))
-
-import Data.Map.Strict (Map, (!),(!?))
-import qualified Data.Map.Strict as M
-import Data.Set (Set)
+import Data.Set (Set, (\\))
 import qualified Data.Set as S
-
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 import qualified Data.List as L
 
-import Debug.Trace
+import Control.Monad
+import qualified Control.Monad.Free as F
+import Control.Monad.Writer (Writer)
+import qualified Control.Monad.Writer as W
+
+import qualified Data.Maybe as M
 
 data Stmt
     = Fun       { elabel :: Text, eargs  :: [Arg], etype :: T.Type, eterms :: [Term], epos :: L.AlexPosn }
@@ -51,79 +42,68 @@ data Term
 data Arg = Arg { argName :: Text, type'' :: T.Type, apos :: Maybe L.AlexPosn }
     deriving Eq
 
-newtype ImplicitArgs = ImplicitArgs { _implicitArgs :: Map Text (Set Text) }
-    deriving (Show, Eq)
-makeLenses ''ImplicitArgs
+data InspectBase cond
+    = Define Text Text cond
+    | Appear Text Text cond
+    deriving Functor
+
+type Inspect = F.Free InspectBase
+
+define l t = F.wrap $ Define l t (return ())
+appear l t = F.wrap $ Appear l t (return ())
+
+newtype ImplicitArgs = Imp (Map Text (Set Text))
+    deriving Show
+
+runInspect :: Inspect a -> ImplicitArgs
+runInspect = Imp . M.map (\\ preDefined) . foldr h M.empty . uncurry (\\) 
+    . ((S.fromList . M.catMaybes) >< (S.fromList . M.catMaybes)) . unzip . runInspect'
+    where
+    h (k,e) = M.insertWith S.union k (S.singleton e)
+    (f >< g) (a, b) = (f a, g b)
+    preDefined = S.fromList ["+", "-", "*", "/", "==", "print"]
+    runInspect' :: Inspect a -> [(Maybe (Text, Text), Maybe (Text, Text))]
+    runInspect' = \case
+        (F.Free (Define b t cond))  -> (Nothing, Just (b, t)) : runInspect' cond
+        (F.Free (Appear b t cond))  -> (Just (b,t), Nothing)  : runInspect' cond
+        (F.Pure _)                -> []
 
 inspectImplicitArgs :: [P.Stmt] -> ImplicitArgs
-inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectStmt (P.label expr) definedVars expr) M.empty exprs
-	where
-	definedVars :: Set Text
-	definedVars = foldr S.union S.empty [globalVars, preDefined]
+inspectImplicitArgs stmts = runInspect $ mapM_ (inspectStmt "global") stmts
+    where
+    inspectStmt :: Text -> P.Stmt -> Inspect ()
+    inspectStmt block = \case
+        (P.Bind l _ stmts _)   -> define block l >> mapM_ (inspectStmt block) stmts
+        (P.Fun l as _ stmts _) -> define l l >> mapM_ (define l . P.argName) as
+                               >> mapM_ (inspectStmt l) stmts
+        (P.ETerm term)         -> inspectTerm block term
 
-	preDefined :: Set Text
-	preDefined = S.fromList ["+", "-", "*", "/", "==", "print"]
-
-	globalVars :: Set Text
-	globalVars = foldr S.insert S.empty $ map P.label exprs
-	
-	inspectStmt :: Text
-				-> Set Text
-	            -> P.Stmt 
-	            -> Map Text (Set Text)
-	            -> Map Text (Set Text)
-	inspectStmt block defined expr undefined = case expr of
-	    (P.Bind label type' exprs _)      -> 
-	        foldr (inspectStmt block defined) undefined exprs
-	    (P.Fun  label args type' exprs _) -> 
-	        foldr (inspectStmt label $ newDict label args) undefined exprs
-	    (P.ETerm term) -> 
-	        inspectTerm block defined undefined term 
-	    where 
-	    newDict l as = definedVars `S.union` foldr (\(P.Arg n t _) dict -> S.insert n dict) (S.singleton l) as
-	
-	inspectTerm :: Text
-				-> Set Text
-	            -> Map Text (Set Text) 
-	            -> P.Term
-	            -> Map Text (Set Text) 
-	inspectTerm block defined undefined term = case term of
-		(P.TInt num _)			   -> undefined
-		(P.Var var _)  			   -> updateDict block var 
-		(P.TStr text _)			   -> undefined
-		(P.Overwrite var term _)   -> inspectTerm block defined (updateDict block var) term
-		(P.Op op term term' _)	   -> let
-			undefined'  = inspectTerm block defined (updateDict block op) term
-			undefined'' = inspectTerm block defined undefined'			  term
-			in undefined''
-		(P.Call var targs _)       -> let
-			undefined'  = updateDict block var
-			undefined'' = foldr (\term undef -> inspectTerm block defined undef term) undefined' targs
-			in undefined
-		(P.SemiColon term term' _) -> (\u -> inspectTerm block defined u term)
-										 $ inspectTerm block defined undefined term
-		(P.If cond exprs exprs' _) -> let
-			undefined1 = inspectTerm block defined undefined cond
-			undefined2 = foldr (inspectStmt block defined) undefined1 exprs
-			undefined3 = foldr (inspectStmt block defined) undefined2 exprs
-			in undefined3
-		where
-		updateDict :: Text -> Text -> Map Text (S.Set Text)
-		updateDict block var = if var `S.member` defined 
-			then undefined
-			else M.insertWith S.union block (S.singleton var) undefined 
+    inspectTerm :: Text -> P.Term -> Inspect ()
+    inspectTerm block = \case
+        (P.Var name _)         -> appear block name
+        (P.Overwrite name t _) -> appear block name >> inspectTerm block t
+        (P.Op op t t' _)       -> appear block op   >> inspectTerm block t >> inspectTerm block t'
+        (P.Call n ts _)        -> mapM_ (inspectTerm block) ts
+        (P.SemiColon t t' _)   -> inspectTerm block t >> inspectTerm block t'
+        (P.If c ss ss' _)      -> inspectTerm block c
+                               >> mapM_ (inspectStmt block) ss
+                               >> mapM_ (inspectStmt block) ss'
+        _                      -> return ()
 
 type Unnest = Writer [Stmt]
 
 closure :: T.Env -> [P.Stmt] -> [Stmt]
 closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
     where
-    implicitArgs = _implicitArgs $ inspectImplicitArgs exprs
+    implicitArgs = inspectImplicitArgs exprs
+    
+    implicitArgsBy :: ImplicitArgs -> Text -> [Text]
+    implicitArgsBy (Imp d) blockName = S.elems . M.fromMaybe S.empty $ d M.!? blockName
 
     pargsToArgs args = flip map args $ \case
         P.Arg n _ p -> Arg n (typeOf n) (Just p)
 
-    typeOf n = T._typeOf typeEnv ! n
+    typeOf n = T._typeOf typeEnv M.! n
 
     unnest :: P.Stmt -> Unnest (Maybe Stmt)
     unnest = \case
@@ -132,8 +112,8 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
             return . Just $ Bind l (T.Type t) terms p
         (P.Fun l as t exprs p) -> do
             exprs' <- M.catMaybes <$> mapM unnest' exprs
-            let impArgs = M.maybe [] S.elems (implicitArgs!?l)
-            let args = L.nub $ map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
+            let impArgs = implicitArgs `implicitArgsBy` l
+            let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
             W.tell [Fun l args (T.Type t) exprs' p]
             return Nothing
         (P.ETerm term) -> error "error" -- グローバルに式が存在？
@@ -146,9 +126,9 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
             return . Just $ TBind l (typeOf l) (foldl (\t t' -> SemiColon t t' p) t ts) p
         (P.Fun l as t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
-            let impArgs = M.maybe [] S.elems (implicitArgs!?l)
+            let impArgs = implicitArgs `implicitArgsBy` l
             let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
-            W.tell [Fun l (pargsToArgs as) (T.Type t) terms p]
+            W.tell [Fun l args (T.Type t) terms p]
             return Nothing
         (P.ETerm term) -> Just <$> unnestTerm term
 
@@ -162,14 +142,13 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
         (P.SemiColon term term' pos) -> SemiColon <$> unnestTerm term <*> unnestTerm term' <*> pure pos
         (P.Call var args pos)        -> do
             args'  <- mapM unnestTerm args
-            let impArgs = M.maybe [] S.elems (implicitArgs!?var)
+            let impArgs = implicitArgs `implicitArgsBy` var
             let args'' = map (\n -> Var n (typeOf n) Nothing) impArgs ++ args'
             Call var <$> pure args'' <*> pure pos
         (P.If cond exprs exprs' pos) -> If <$> unnestTerm cond
                                            <*> (M.catMaybes <$> mapM unnest' exprs)  
                                            <*> (M.catMaybes <$> mapM unnest' exprs') 
                                            <*> pure pos
-
 addIndent = unlines . map ("\t"++) . lines
 
 instance Show Term where
