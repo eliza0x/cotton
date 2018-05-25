@@ -109,7 +109,7 @@ knormalize typeEnv = mapM knormalize'
                 E.tellEff #knorm [Op op retVar var var' (Just pos)]
             C.Call{..} -> do
                 args <- E.liftEff #io $ mapM (const uniqueVarName) [1..length targs] 
-                let T.Func types _ = fromMaybe (error $ "undefined argsments: " ++ show args) $ typeOf !? var
+                let T.Func types _ = fromMaybe (error $ "undefined arguments: " ++ show args) $ typeOf !? var
                 forM_ (zip3 targs args types) $ \(term, argName, type') ->
                     knormalizeTerm' (Var argName type' (Just pos)) term
                 let valArgs = map (\(arg, type') -> Var arg type' (Just pos)) $ zip args types
