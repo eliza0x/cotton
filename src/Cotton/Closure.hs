@@ -31,7 +31,7 @@ import qualified Data.List as L
 
 import Debug.Trace
 
-data Expr
+data Stmt
     = Fun       { elabel :: Text, eargs  :: [Arg], etype :: T.Type, eterms :: [Term], epos :: L.AlexPosn }
     | Bind      { elabel :: Text, etype :: T.Type, eterms :: [Term],                    epos :: L.AlexPosn }
     deriving Eq
@@ -55,8 +55,8 @@ newtype ImplicitArgs = ImplicitArgs { _implicitArgs :: Map Text (Set Text) }
     deriving (Show, Eq)
 makeLenses ''ImplicitArgs
 
-inspectImplicitArgs :: [P.Expr] -> ImplicitArgs
-inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label expr) definedVars expr) M.empty exprs
+inspectImplicitArgs :: [P.Stmt] -> ImplicitArgs
+inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectStmt (P.label expr) definedVars expr) M.empty exprs
 	where
 	definedVars :: Set Text
 	definedVars = foldr S.union S.empty [globalVars, preDefined]
@@ -67,16 +67,16 @@ inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label 
 	globalVars :: Set Text
 	globalVars = foldr S.insert S.empty $ map P.label exprs
 	
-	inspectExpr :: Text
+	inspectStmt :: Text
 				-> Set Text
-	            -> P.Expr 
+	            -> P.Stmt 
 	            -> Map Text (Set Text)
 	            -> Map Text (Set Text)
-	inspectExpr block defined expr undefined = case expr of
+	inspectStmt block defined expr undefined = case expr of
 	    (P.Bind label type' exprs _)      -> 
-	        foldr (inspectExpr block defined) undefined exprs
+	        foldr (inspectStmt block defined) undefined exprs
 	    (P.Fun  label args type' exprs _) -> 
-	        foldr (inspectExpr label $ newDict label args) undefined exprs
+	        foldr (inspectStmt label $ newDict label args) undefined exprs
 	    (P.ETerm term) -> 
 	        inspectTerm block defined undefined term 
 	    where 
@@ -104,8 +104,8 @@ inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label 
 										 $ inspectTerm block defined undefined term
 		(P.If cond exprs exprs' _) -> let
 			undefined1 = inspectTerm block defined undefined cond
-			undefined2 = foldr (inspectExpr block defined) undefined1 exprs
-			undefined3 = foldr (inspectExpr block defined) undefined2 exprs
+			undefined2 = foldr (inspectStmt block defined) undefined1 exprs
+			undefined3 = foldr (inspectStmt block defined) undefined2 exprs
 			in undefined3
 		where
 		updateDict :: Text -> Text -> Map Text (S.Set Text)
@@ -113,9 +113,9 @@ inspectImplicitArgs exprs = ImplicitArgs $ foldr (\expr -> inspectExpr (P.label 
 			then undefined
 			else M.insertWith S.union block (S.singleton var) undefined 
 
-type Unnest = Writer [Expr]
+type Unnest = Writer [Stmt]
 
-closure :: T.Env -> [P.Expr] -> [Expr]
+closure :: T.Env -> [P.Stmt] -> [Stmt]
 closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
     where
     implicitArgs = _implicitArgs $ inspectImplicitArgs exprs
@@ -125,7 +125,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
 
     typeOf n = T._typeOf typeEnv ! n
 
-    unnest :: P.Expr -> Unnest (Maybe Expr)
+    unnest :: P.Stmt -> Unnest (Maybe Stmt)
     unnest = \case
         (P.Bind l t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
@@ -138,7 +138,7 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
             return Nothing
         (P.ETerm term) -> error "error" -- グローバルに式が存在？
 
-    unnest' :: P.Expr -> Unnest (Maybe Term)
+    unnest' :: P.Stmt -> Unnest (Maybe Term)
     unnest' = \case
         (P.Bind l t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
@@ -184,7 +184,7 @@ instance Show Term where
                             ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
     show (Overwrite l ty t _)  = unpack l ++ ": " ++ show ty ++ " <- " ++ show t
 
-instance Show Expr where
+instance Show Stmt where
     show (Bind l t es _p)   = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
     show (Fun l as t es _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as
                                      ,"): ",show t," {\n",addIndent . unlines $ map show es,"}"]

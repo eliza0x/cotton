@@ -3,7 +3,7 @@
 
 module Cotton.KNormalize where
 
-import Cotton.Closure (Expr, Term)
+import Cotton.Closure (Stmt, Term)
 import qualified Cotton.Closure as C
 import qualified Cotton.Lexer  as L
 import qualified Cotton.Type   as T
@@ -50,7 +50,7 @@ type KNormalize = Eff '[ "knorm" >: E.WriterEff [KNormal]
                        , "io"    >: IO]
 
 -- | K正規化
-knormalize :: T.Env -> [Expr] -> IO [Block]
+knormalize :: T.Env -> [Stmt] -> IO [Block]
 knormalize typeEnv = mapM knormalize'
     where
     genReturnVar retType = Var "_return" retType Nothing
@@ -60,7 +60,7 @@ knormalize typeEnv = mapM knormalize'
                   . (`E.evalStateEff` M.empty) 
                   . E.execWriterEff @ "knorm" 
 
-    knormalize' :: Expr -> IO Block
+    knormalize' :: Stmt -> IO Block
     knormalize' = \case
         (C.Fun label args type' terms pos) -> Fun label (map arg2Val args) type' <$> knormalizeTerm (genReturnVar type') terms <*> pure (Just pos)
         (C.Bind label type' terms pos)     -> Bind label type'                   <$> knormalizeTerm (genReturnVar type') terms <*> pure (Just pos)

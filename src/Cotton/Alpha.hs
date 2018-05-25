@@ -38,14 +38,14 @@ makeLenses ''AlphaEnv
 type Alpha = State AlphaEnv
 
 -- | Alpha変換
-alpha :: [P.Expr] -> [P.Expr]
+alpha :: [P.Stmt] -> [P.Stmt]
 alpha exprs = map (\expr -> S.evalState (alpha' expr) initState) exprs
     where 
     initState = AlphaEnv "" global
     -- グローバル変数、関数を環境に追加
     -- TODO: 一段目にETerm来た場合のエラー処理をする
     global = foldr (\expr dic -> M.insert (P.label expr) (P.label expr) dic) M.empty exprs
-    alpha' :: P.Expr -> Alpha P.Expr
+    alpha' :: P.Stmt -> Alpha P.Stmt
     alpha' = \case
         (P.Bind label' type' expr' pos) -> do
             curPrefix <- use prefix

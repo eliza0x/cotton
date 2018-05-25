@@ -1,7 +1,7 @@
 {
 module Cotton.Parser (
     parser,
-    Expr(..),
+    Stmt(..),
     Term(..),
     Arg(..),
     ) where
@@ -56,31 +56,31 @@ import qualified Cotton.Lexer as CL
 
 -- | 文
 -- トップレベルに式を書かせない
-Exprs :: { [Expr] }
-Exprs   : Bind Exprs             { fst $1 : $2 }
-        | Fun  Exprs             { fst $1 : $2 }
+Stmts :: { [Stmt] }
+Stmts   : Bind Stmts             { fst $1 : $2 }
+        | Fun  Stmts             { fst $1 : $2 }
         |                       { [] }
         | Terms                 {% fail $ "Top-level declaration expected:" ++ (show $ snd $1) }
 
 -- | インナー文
-Exprs2 :: { [Expr] }
-Exprs2  : Bind Exprs2            { fst $1 : $2 }
-        | Fun  Exprs2            { fst $1 : $2 }
-        | Terms Exprs2           { ETerm (fst $1) : $2 }
+Stmts2 :: { [Stmt] }
+Stmts2  : Bind Stmts2            { fst $1 : $2 }
+        | Fun  Stmts2            { fst $1 : $2 }
+        | Terms Stmts2           { ETerm (fst $1) : $2 }
         | Terms                  { [ETerm (fst $1)] }
         | Bind                   {% fail $ "expression must be finish term." ++ show (snd $1) }
         | Fun                    {% fail $ "expression must be finish term." ++ show (snd $1) }
 
-Bind :: { (Expr, CL.AlexPosn) }
+Bind :: { (Stmt, CL.AlexPosn) }
 Bind    : def Lower ':' Upper '=' Term ';'   
         { (Bind { label = fst $2, type' = fst $4, expr = [ETerm $ fst $6], pos = CL.pos $1 }, CL.pos $1) }
-        | def Lower ':' Upper '{' Exprs2 '}' 
+        | def Lower ':' Upper '{' Stmts2 '}' 
         { (Bind { label = fst $2, type' = fst $4, expr = $6,               pos = CL.pos $1 }, CL.pos $1) }
 
-Fun :: { (Expr, CL.AlexPosn) }
+Fun :: { (Stmt, CL.AlexPosn) }
 Fun     : def Lower '(' Args ')' ':' Upper '=' Term ';'
         { (Fun { label = fst $2 , args = $4, type' = fst $7, expr = [ETerm $ fst $9], pos = CL.pos $1 }, CL.pos $1) }
-        | def Lower '(' Args ')' ':' Upper '{' Exprs2 '}'
+        | def Lower '(' Args ')' ':' Upper '{' Stmts2 '}'
         { (Fun { label = fst $2 , args = $4, type' = fst $7, expr  = $9,        pos = CL.pos $1 }, CL.pos $1) }
 
 -- | 式
@@ -89,7 +89,7 @@ Terms   : Term ';' Terms        { (SemiColon {term = fst $1, term' = fst $3}, sn
         | Term                  { (fst $1, snd $1) }
 
 Term   :: { (Term, CL.AlexPosn) } 
-Term    : if Term '{' Exprs2 '}' else '{' Exprs2 '}' 
+Term    : if Term '{' Stmts2 '}' else '{' Stmts2 '}' 
                                     { (If {cond = fst $2, texprs = $4, texprs' = $8, tpos = CL.pos $1 }, CL.pos $1) }
         | Lower '<-' Term           { (Overwrite (fst $1) (fst $3) (snd $1), snd $1) }
         | Lower '(' Calls ')'       { (Call { var = fst $1, targs = $3, tpos = snd $1 }, snd $1) }
@@ -147,9 +147,9 @@ Upper   : type  { (CL.text $1, CL.pos $1) }
 {
 
 -- | 文
-data Expr =
-      Bind { label :: Text, type' :: Text, expr :: [Expr], pos :: CL.AlexPosn  }
-    | Fun  { label :: Text, args  :: [Arg], type' :: Text, expr :: [Expr], pos ::CL.AlexPosn }
+data Stmt =
+      Bind { label :: Text, type' :: Text, expr :: [Stmt], pos :: CL.AlexPosn  }
+    | Fun  { label :: Text, args  :: [Arg], type' :: Text, expr :: [Stmt], pos ::CL.AlexPosn }
     | ETerm Term
     deriving Eq
 
@@ -162,7 +162,7 @@ data Term
     | Op        { op   :: Text, term   :: Term,   term'   :: Term, tpos :: CL.AlexPosn }   -- 演算子
     | Call      { var  :: Text, targs  :: [Term], tpos    :: CL.AlexPosn }                 -- Call
     | SemiColon { term :: Term, term'  :: Term,   tpos    :: CL.AlexPosn }                 -- 連結
-    | If        { cond :: Term, texprs :: [Expr], texprs' :: [Expr], tpos :: CL.AlexPosn } -- if式
+    | If        { cond :: Term, texprs :: [Stmt], texprs' :: [Stmt], tpos :: CL.AlexPosn } -- if式
     deriving Eq
 
 data Arg = Arg { argName :: Text, type'' :: Maybe Text, apos :: CL.AlexPosn }
@@ -171,7 +171,7 @@ data Arg = Arg { argName :: Text, type'' :: Maybe Text, apos :: CL.AlexPosn }
 parseError :: [CL.Token] -> a
 parseError ts = error $ "Parse error - line: " ++ show ts
 
-parser :: [CL.Token] -> Either Text [Expr]
+parser :: [CL.Token] -> Either Text [Stmt]
 parser tokens = lawParser tokens
 
 instance Show Term where
@@ -186,7 +186,7 @@ instance Show Term where
                             ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
     show (Overwrite l t _)  = unpack l ++ " <- " ++ show t
 
-instance Show Expr where
+instance Show Stmt where
     show (ETerm t)          = show t
     show (Bind l t es _p)   = concat ["def ",unpack l,": ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
     show (Fun l as t es _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as

@@ -2,7 +2,7 @@
 
 module Cotton.Type where
 
-import Cotton.Parser (Expr(..), Term(..), Arg(..))
+import Cotton.Parser (Stmt(..), Term(..), Arg(..))
 import qualified Cotton.Parser as P
 
 import Debug.Trace
@@ -38,7 +38,7 @@ data Env = Env { _typeOf :: Map Text Type }
     deriving (Show, Eq)
 makeLenses ''Env
 
-typeCheck :: [Expr] -> Env
+typeCheck :: [Stmt] -> Env
 typeCheck exprs = S.execState (mapM_ typeCheck' exprs) initState
     where
     initState = Env $ M.fromList [ ("+",  Func [Type "Int", Type "Int"] (Type "Int"))
@@ -48,7 +48,7 @@ typeCheck exprs = S.execState (mapM_ typeCheck' exprs) initState
                                  , ("==", Func [Type "Int", Type "Int"] (Type "Bool"))
                                  ]
     
-typeCheck' :: Expr -> EnvM Type
+typeCheck' :: Stmt -> EnvM Type
 typeCheck' = \case
     Bind{..} -> do 
         updateEnv label (Type type')
