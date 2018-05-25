@@ -92,14 +92,14 @@ inspectImplicitArgs stmts = runInspect $ mapM_ (inspectStmt "global") stmts
 
 type Unnest = Writer [Stmt]
 
+implicitArgsBy :: ImplicitArgs -> Text -> [Text]
+implicitArgsBy (Imp d) blockName = S.elems . M.fromMaybe S.empty $ d M.!? blockName
+
 closure :: T.Env -> [P.Stmt] -> [Stmt]
 closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
     where
     implicitArgs = inspectImplicitArgs exprs
     
-    implicitArgsBy :: ImplicitArgs -> Text -> [Text]
-    implicitArgsBy (Imp d) blockName = S.elems . M.fromMaybe S.empty $ d M.!? blockName
-
     pargsToArgs args = flip map args $ \case
         P.Arg n _ p -> Arg n (typeOf n) (Just p)
 
@@ -149,7 +149,14 @@ closure typeEnv exprs = concat $ mapM (W.execWriter . unnest) exprs
                                            <*> (M.catMaybes <$> mapM unnest' exprs)  
                                            <*> (M.catMaybes <$> mapM unnest' exprs') 
                                            <*> pure pos
+
 addIndent = unlines . map ("\t"++) . lines
+
+appendImplicitArgs :: T.Env -> ImplicitArgs -> T.Env
+appendImplicitArgs (T.Env dict) imp = T.Env $ M.mapWithKey (\name type' -> case type' of
+    T.Func args retType -> T.Func (map T.Type (imp `implicitArgsBy` name) ++ args) retType
+    t -> t) dict
+
 
 instance Show Term where
     show (TBind l ty t _p)  = concat ["def ",unpack l,": ",show ty," {\n",addIndent $ show t,"}"]
