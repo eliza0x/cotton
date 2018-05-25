@@ -25,7 +25,7 @@ data Type
     deriving Eq
 
 instance Show Type where
-    show (Type "Int") = "i32"
+    show (Type "I32") = "i32"
     show (Type "Bool") = "i1"
     show (Type "Unit") = "void"
     show (Type t) = unpack t
@@ -41,11 +41,11 @@ makeLenses ''Env
 typeCheck :: [Stmt] -> Env
 typeCheck exprs = S.execState (mapM_ typeCheck' exprs) initState
     where
-    initState = Env $ M.fromList [ ("+",  Func [Type "Int", Type "Int"] (Type "Int"))
-                                 , ("-",  Func [Type "Int", Type "Int"] (Type "Int"))
-                                 , ("*",  Func [Type "Int", Type "Int"] (Type "Int"))
-                                 , ("/",  Func [Type "Int", Type "Int"] (Type "Int"))
-                                 , ("==", Func [Type "Int", Type "Int"] (Type "Bool"))
+    initState = Env $ M.fromList [ ("+",  Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("-",  Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("*",  Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("/",  Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("==", Func [Type "I32", Type "I32"] (Type "Bool"))
                                  ]
     
 typeCheck' :: Stmt -> EnvM Type
@@ -75,7 +75,7 @@ typeCheck' = \case
 
 typeCheck'' :: Term -> EnvM Type
 typeCheck'' = \case
-    TInt{..}      -> return $ Type "Int"
+    TInt{..}      -> return $ Type "I32"
     Var{..}       -> fromMaybe (error $ show var ++ " is not defined") <$> getType var 
     TStr{..}      -> return $ Type "String"
     Overwrite{..} -> do

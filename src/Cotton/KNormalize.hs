@@ -75,7 +75,7 @@ knormalize typeEnv = mapM knormalize'
         valType = \case
             Var{..} -> type'
             NullVar -> T.Bottom
-            Num{..} -> T.Type "Int"
+            Num{..} -> T.Type "I32"
             Str{..} -> T.Type "String" 
 
         knormalizeTerm' :: Val -> C.Term -> KNormalize ()
@@ -98,8 +98,6 @@ knormalize typeEnv = mapM knormalize'
                 -- 式の返り値を変数名にすることで代入先を決定
                 let var' = Var var type' Nothing
                 knormalizeTerm' var' term
-                -- when (retVar /= NullVar) $
-                --     E.tellEff #knorm [Let retVar var' (Just pos)]
             C.Op{..}  -> do
                 let T.Func [t, t'] _ = fromMaybe (error $ "undefined operator: " ++ unpack op) $ typeOf !? op
 

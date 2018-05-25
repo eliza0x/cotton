@@ -112,7 +112,7 @@ block2LLVM_IR = \case
     isAlloca _          = False
     genDict args = foldr (\(i, arg) dict -> M.insert (K.name arg) i dict) M.empty $ zip [0..] args
     initVal = \case
-        T.Type "Int"    -> I32 0
+        T.Type "I32"    -> I32 0
         T.Type "Bool"   -> VBool False
         T.Type "String" -> Str ""
 
@@ -190,7 +190,7 @@ kNormal2Instraction blockArgs knorms =
         typeOf = \case
             K.Var{..} -> type'
             K.NullVar -> T.Bottom
-            K.Num{..} -> T.Type "Int"
+            K.Num{..} -> T.Type "I32"
             K.Str{..} -> T.Type "String"
 
         uniqueText :: InstM Text
