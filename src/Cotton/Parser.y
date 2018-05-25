@@ -32,7 +32,7 @@ import qualified Cotton.Lexer as CL
   '<-'      { CL.LArrow     $$ }
   '->'      { CL.RArrow     $$ }
   '='       { CL.Equal      $$ }
-  '`'       { CL.Backquort  $$ }
+  '`'       { CL.BackQuote  $$ }
   '"'       { CL.Quort      $$ }
   '\''      { CL.Apostrophe $$ }
   ';'       { CL.Semicolon  $$ }

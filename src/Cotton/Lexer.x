@@ -30,7 +30,7 @@ tokens :-
     "else"                              { tok (\p _ -> Else       (Pos p) )       }
     "<-"                                { tok (\p _ -> LArrow     (Pos p) )       }
     "->"                                { tok (\p _ -> RArrow     (Pos p) )       }
-    "`"                                 { tok (\p _ -> Backquort  (Pos p) )       }
+    "`"                                 { tok (\p _ -> BackQuote  (Pos p) )       }
     "'"                                 { tok (\p _ -> Apostrophe (Pos p) )       }
     "("                                 { tok (\p _ -> LParen     (Pos p) )       }
     ")"                                 { tok (\p _ -> RParen     (Pos p) )       }
@@ -56,7 +56,7 @@ data Token
     | LArrow            TokenData
     | RArrow            TokenData
     | Equal             TokenData
-    | Backquort         TokenData
+    | BackQuote         TokenData
     | Quort             TokenData
     | Apostrophe        TokenData
     | Semicolon         TokenData
