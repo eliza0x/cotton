@@ -146,15 +146,25 @@ kNormal2Instraction blockArgs knorms =
         K.Let{..}              -> do
             allocInst <- allocRef val1
             case (K.name val1, isArg val2, val2) of
+                -- 返り値は値であり、引数は値であるため
+                ("_return", True, _) -> do
+                    refName <- uniqueText
+                    allocInst' <- allocRef (K.Var refName (typeOf val2) Nothing)
+                    let storeInst = Store (Ref refName (K.type' val2)) (val2Reg val2) (typeOf val2)
+                    let loadInst = Load (val2Reg val1) (Ref refName (K.type' val2)) (typeOf val1)
+                    return $ allocInst ++ allocInst' ++ [storeInst, loadInst]
+               
                 -- 返り値は値のため
                 ("_return", _, K.Var{..}) -> do
                     let loadInst = Load (val2Reg val1) (val2Ref val2) (typeOf val2)
                     return $ allocInst ++ [loadInst]
+
                 ("_return", _, _) -> do
                     refName <- uniqueText
+                    allocInst' <- allocRef (K.Var refName (typeOf val2) Nothing)
                     let storeInst = Store (Ref refName (K.type' val2)) (val2Reg val2) (typeOf val2)
                     let loadInst = Load (val2Reg val1) (Ref refName (K.type' val2)) (typeOf val1)
-                    return $ allocInst ++ [storeInst, loadInst]
+                    return $ allocInst ++ allocInst' ++ [storeInst, loadInst]
 
                 -- 引数は参照ではなく値で与えられるため 
                 (_, True, K.Var{..}) -> do
