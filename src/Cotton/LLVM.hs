@@ -1,9 +1,8 @@
-{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, FlexibleContexts, DeriveFunctor #-}
+{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, FlexibleContexts  #-}
 
 module Cotton.LLVM where
 
 import Data.Maybe
-import Control.Monad
 import Data.Text (Text, unpack)
 import Data.Map.Strict ((!), (!?))
 import qualified Data.Set as Se
@@ -210,9 +209,10 @@ kNormal2Instraction blockArgs knorms =
         genCallInst funName (K.Var "_return" type' _) args = do
             let rd = K.Var "_return" type' Nothing
             names <- replicateM (length args) uniqueText
-            let (args', loadsM) = unzip $ flip map (zip names args) (\(newName, arg) -> case arg of
-                    K.Var{..} -> (Reg newName type', Just $ Load (Reg newName type') (Ref name type') type') 
-                    v         -> (val2Reg v, Nothing))
+            let (args', loadsM) = unzip $ flip map (zip names args) (\(newName, arg) -> case (isArg arg, arg) of
+                    (True, K.Var{..})  -> (val2Reg arg, Nothing) 
+                    (False, K.Var{..}) -> (Reg newName type', Just $ Load (Reg newName type') (Ref name type') type') 
+                    (_, v)             -> (val2Reg v, Nothing))
             allocInst <- allocRef rd
             let callInst = Call funName (typeOf rd) (val2Reg rd) args'
             return $ allocInst ++ catMaybes loadsM ++ [callInst]

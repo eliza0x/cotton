@@ -42,7 +42,7 @@ compile sourceCode = do
             let typeEnv' = appendImplicitArgs typeEnv implicitArgs
             putStrLn "\n=========="
             putStrLn "K正規化\n"
-            knorm <- knormalize typeEnv cts
+            knorm <- knormalize typeEnv' cts
             mapM_ print knorm
             putStrLn "\n=========="
             putStrLn "LLVM IR\n"
