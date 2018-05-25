@@ -7,5 +7,5 @@ import Control.Monad
 main :: IO ()
 main = do
     args <- getArgs 
-    when (length args >= 1)
+    unless (null args)
         $ putStrLn =<< compile =<< readFile (args!!0)
