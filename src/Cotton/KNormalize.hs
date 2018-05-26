@@ -139,7 +139,7 @@ knormalize typeEnv = mapM knormalize'
                 let T.Func types _ = fromMaybe (error $ "undefined arguments: " ++ show args) $ typeOf !? var
                 forM_ (zip3 targs args types) $ \(term, argName, type') ->
                     knormalizeTerm' (Var argName type' (Just pos)) term
-                let valArgs = map (\(arg, type') -> Var arg type' (Just pos)) $ zip args types
+                let valArgs = zipWith (\arg type' -> Var arg type' (Just pos)) args types
                 E.tellEff #knorm [Call retVar var valArgs (Just pos)]
             C.Str{..} -> when (retVar /= NullVar) $
                     E.tellEff #knorm [Let retVar (Str text (Just pos)) (Just pos)]
