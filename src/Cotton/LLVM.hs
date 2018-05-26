@@ -1,3 +1,16 @@
+{-|
+Module      : Cotton.LLVM
+Description : generate LLVM IR
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+
+K正規化された式からLLVM IRを生成します。
+
+-}
+
 {-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, FlexibleContexts, DeriveFunctor #-}
 
 module Cotton.LLVM where

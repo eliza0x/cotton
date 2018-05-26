@@ -1,3 +1,38 @@
+{-|
+Module      : Cotton.Closure
+Description : closure convert
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+
+クロージャ変換はネストされた関数定義を展開します。その際内側の自由変数は暗黙の引数として引数に追加されます。
+
+@
+def f(): Int {
+    def n(): Int = 1;
+    def g(): Int {
+        n
+    }
+    g()
+}
+@
+
+このコードは以下のように展開されます。
+
+@
+def g(n: Int): Int {
+    n
+}
+def f(): Int {
+    def n(): Int = 1;
+    g(n)
+}
+@
+
+-}
+
 {-# LANGUAGE RecordWildCards, OverloadedStrings, LambdaCase, DeriveFunctor, FlexibleContexts #-}
 
 module Cotton.Closure where

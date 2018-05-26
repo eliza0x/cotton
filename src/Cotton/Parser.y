@@ -1,4 +1,16 @@
 {
+{-|
+Module      : Cotton.Parser
+Description : parser
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+
+トークン列を解析して、構文木に変換します。
+
+-}
 module Cotton.Parser (
     parser,
     Stmt(..),

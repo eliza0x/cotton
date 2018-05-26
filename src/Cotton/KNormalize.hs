@@ -1,3 +1,30 @@
+{-|
+Module      : Cotton.KNormalize
+Description : K normalize
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+
+K正規化は式を展開します。
+
+@
+def n: Int = 1 * 2 + 3;
+@
+
+このコードは以下のように展開されます。
+
+@
+def n1: Int = 1;
+def n2: Int = 2;
+def n3: Int = 3;
+def n4: Int = n1 * n2;
+def n: Int = n3 + n4;
+@
+
+-}
+
 {-# LANGUAGE DataKinds, TypeOperators, LambdaCase, RecordWildCards, TypeApplications, OverloadedStrings, OverloadedLabels #-}
 {-# OPTIONS_GHC -fno-warn-simplifiable-class-constraints#-}
 

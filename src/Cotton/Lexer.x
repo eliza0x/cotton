@@ -1,4 +1,17 @@
 {
+{-|
+Module      : Cotton.Lexer
+Description : tokenizer
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+
+ソースコードをトークン列に分解します。
+
+-}
+
 {-# LANGUAGE FlexibleContexts, OverloadedStrings #-}
 
 module Cotton.Lexer (
