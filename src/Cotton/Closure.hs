@@ -33,7 +33,7 @@ def f(): Int {
 
 -}
 
-{-# LANGUAGE RecordWildCards, OverloadedStrings, LambdaCase, DeriveFunctor, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, LambdaCase, DeriveFunctor, FlexibleContexts #-}
 
 module Cotton.Closure where
 

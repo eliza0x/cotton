@@ -30,12 +30,11 @@ instance Show Type where
     show (Type "Bool") = "i1"
     show (Type "Unit") = "void"
     show (Type t) = unpack t
-    show (Type t) = unpack t
     show (Func as t) = "("++drop 2 (concatMap (\a -> ", " ++ show a) as)++"): "++show t
 
 type EnvM = State Env
 
-data Env = Env { _typeOf :: Map Text Type }
+newtype Env = Env { _typeOf :: Map Text Type }
     deriving (Show, Eq)
 
 makeLenses ''Env
@@ -60,14 +59,14 @@ typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
             checkArgs args
             updateEnv label (Func (map (Type . fromJust . P.type'') args) $ Type type') 
             types <- mapM typeCheck' stmt
-            when (Type type' /= last types) $  do
+            when (Type type' /= last types)
                 (error $ "type error.\nactual type: "++show (last types)
                                 ++"\nexpected type: "++show type'
                                 ++"\npos: "++show pos)
             return $ last types
         (ETerm term) -> typeCheck'' term
         where
-        checkArgs args = flip mapM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
+        checkArgs args = forM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
         updateEnv label type' = do
             type'' <- uses typeOf (!? label)
             when (isJust type'' && fromJust type'' /= type') 
@@ -80,7 +79,7 @@ typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
         Var{..}       -> fromMaybe (error $ show var ++ " is not defined") <$> getType var 
         TStr{..}      -> return $ Type "String"
         Overwrite{..} -> do
-            type' <- fromMaybe (error $ "this variable is not defined") <$> getType var 
+            type' <- fromMaybe (error $ "this variable is not defined: "++show var) <$> getType var 
             type'' <- typeCheck'' term
             when (type' /= type'') $ error ("type error.\n"++show var++": "++show type' ++ "\n"++show term++": "++show type'')
             return $ Type "Unit"
