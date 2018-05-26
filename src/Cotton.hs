@@ -46,6 +46,7 @@ compile sourceCode = do
             mapM_ print knorm
             putStrLn "\n=========="
             putStrLn "LLVM IR\n"
+            return ""
             llvmir <- knorm2llvmir knorm
             let asm = map show llvmir
             return $ concat asm
