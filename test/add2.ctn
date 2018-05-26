@@ -1,0 +1,5 @@
+def main(): I32 {
+    def n: I32 = 10 + 20;
+    def m: I32 = n;
+    m
+}

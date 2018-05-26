@@ -33,8 +33,7 @@ instance Show LLVM_IR where
         "define "++show t++" @"++unpack l++
         "("++drop 2 (concatMap (\(Reg n t) -> ", "++show t++" %"++unpack n) as)++") "++ 
         " {\n"++ concatMap (\i -> indent i ++ show i ++"\n") is ++ 
-        "\tret "++show t++(if t == T.Type "Unit" then "" else " %_return")++
-        "\n}\n"
+        "}\n"
         where    
         indent Label{..}  = ""
         indent _          = "\t"
@@ -51,6 +50,7 @@ data Instraction
     | Eqi    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
     | CBr    { cond :: Reg, thenLabel :: Text, elseLabel :: Text }
     | Br     { label' :: Text }
+    | Ret    { label' :: Text, type' :: T.Type }
     | Label  { label' :: Text }
     deriving Eq
 
@@ -67,6 +67,7 @@ instance Show Instraction where
         (CBr cond t e)       -> "br i1 "++show cond++", label %"++unpack t++", label %"++unpack e
         (Br     label')      -> "br label %"++unpack label'
         (Label  label')      -> "\n"++unpack label'++":"
+        (Ret    label' t)      -> "ret "++show t++(if t == T.Type "Unit" then "" else " %"++unpack label')
         (Call lbl type' rd args') -> show rd++" = call "++show type'++" @"++unpack lbl++
                                     "("++drop 2 (concatMap (\(Reg n t) -> ", "++show t++" %"++unpack n) args')++") "
 
@@ -115,8 +116,7 @@ runInstGenerator m = (\insts -> filter isAlloca insts ++ filter (not . isAlloca)
     runInstGeneratorIter :: Se.Set Text -> InstGenerator a -> IO [Instraction]
     runInstGeneratorIter alreadyAllocated = \case
         (F.Free (Emit inst cont)) -> (inst :) <$> runInstGeneratorIter alreadyAllocated cont
-        (F.Free (GenUniqueText cont)) -> R.stringRandomIO "[a-zA-Z][a-zA-Z0-9_]{7}" 
-                                     >>= runInstGeneratorIter alreadyAllocated . cont
+        (F.Free (GenUniqueText cont)) -> uniqueText >>= runInstGeneratorIter alreadyAllocated . cont
         (F.Free (Allocate name type' cont)) -> let 
             alreadyAllocated' = name `Se.insert` alreadyAllocated
             allocateInst = if name `Se.member` alreadyAllocated
@@ -127,18 +127,59 @@ runInstGenerator m = (\insts -> filter isAlloca insts ++ filter (not . isAlloca)
     isAlloca Alloca{..} = True
     isAlloca _          = False
 
+uniqueText :: IO Text
+uniqueText = R.stringRandomIO "[a-zA-Z][a-zA-Z0-9_]{7}" 
+
+-- | "_return"をLetの左辺にのみ現れるよう展開、これによりLLVM IRの生成を簡単化出来る
+expandReturn :: [K.KNormal] -> IO [K.KNormal]
+expandReturn knorms = concat <$> mapM er knorms where
+    er :: K.KNormal -> IO [K.KNormal]
+    er knorm = do
+        n <- uniqueText
+        case knorm of
+            (K.Op op (K.Var "_return" t _) r2 r3 p)       -> return [K.Op op (K.Var n t p) r2 r3 p   , genLet n t]
+            (K.Call  (K.Var "_return" t _) fun args p)    -> return [K.Call  (K.Var n t p) fun args p, genLet n t]
+            (K.Let   (K.Var "_return" t _) r2 p)          -> return [K.Let   (K.Var n t p) r2 p      , genLet n t]
+            (K.If    (K.Var "_return" t _) cr cs ts es p) -> do
+                cs' <- expandReturn cs
+                ts' <- expandReturn ts
+                es' <- expandReturn es
+                return [K.If (K.Var n t p) cr cs' ts' es' p, genLet n t]
+            t -> return [t]
+    genLet n type' = K.Let (K.Var "_return" type' Nothing) (K.Var n type' Nothing) Nothing
+
+-- | LLVMでは引数が参照ではなく値であるためこれを変換するIRと、新しい引数の変数名を生成する
+expandArg :: [K.Val] -> IO ([Reg], [Instraction])
+expandArg args = do
+    newNames <- replicateM (length args) uniqueText
+    let (args', header) = unzip $map
+            (\(arg, name) -> let 
+            type' = K.type' arg
+            r = Reg name type'
+            store = Store (val2Ref arg) r type'
+            alloc = Alloca (val2Ref arg) type'
+            in (r, [alloc, store])) (zip args newNames) 
+    return (args', concat header)
+
+-- | LLVM IRを生成
 knorm2llvmir :: [K.Block] -> IO [LLVM_IR]
 knorm2llvmir blocks = do
     (ir, insts) <- unzip <$> mapM block2LLVM_IR blocks
-    return $ Fun "init" (T.Type "Unit") [] (concat insts) : ir
+    -- 初期化する値が無い場合は@initは生成しない
+    t <- uniqueText
+    let initFun = [Fun ("init_"<>t) (T.Type "Unit") [] (concat insts) | (not . null . concat) insts]
+    return $ initFun ++ ir
 
 block2LLVM_IR :: K.Block -> IO (LLVM_IR, [Instraction])
 block2LLVM_IR = \case
     K.Fun{..}  -> do
-        llvmir <- runInstGenerator $ mapM (kNormal2Instraction args) knorms
-        return (Fun label btype (map val2Reg args) llvmir, [])
+        knorms' <- expandReturn knorms
+        (args', header) <- expandArg args
+        llvmir <- runInstGenerator $ mapM kNormal2Instraction knorms'
+        return (Fun label btype args' (header++llvmir), [])
     K.Bind{..} -> do 
-        llvmir <- runInstGenerator $ mapM (kNormal2Instraction []) knorms
+        knorms' <- expandReturn knorms
+        llvmir <- runInstGenerator $ mapM kNormal2Instraction knorms'
         return (Bind label btype (initVal btype), llvmir)
     where
     initVal = \case
@@ -146,8 +187,8 @@ block2LLVM_IR = \case
         T.Type "Bool"   -> VBool False
         T.Type "String" -> Str ""
 
-kNormal2Instraction :: [K.Val] ->  K.KNormal -> InstGenerator ()
-kNormal2Instraction blockArgs = \case
+kNormal2Instraction ::  K.KNormal -> InstGenerator ()
+kNormal2Instraction = \case
         (K.Op "+"  r1 r2 r3 _) -> genOpInst Add r1 r2 r3
         (K.Op "-"  r1 r2 r3 _) -> genOpInst Sub r1 r2 r3
         (K.Op "*"  r1 r2 r3 _) -> genOpInst Mul r1 r2 r3
@@ -156,39 +197,33 @@ kNormal2Instraction blockArgs = \case
         (K.Op fun  r1 r2 r3 _) -> genCallInst fun r1 [r2,r3]
         (K.Call r1 fun args _) -> genCallInst fun r1 args
         K.Let{..}              ->
-            case (K.name val1, isArg val2, isVar val2) of
-                -- 返り値は値のため, 引数は値であるためスルー
-                ("_return", False, True) -> 
-                    emit $ load val1 val2
-                ("_return", False, False) -> do
-                    refName <- genUniqueText
-                    allocate refName (typeOf val2)
-                    emit $ store (K.Var refName (K.type' val2) Nothing) val2
-                    emit $ load val1 (K.Var refName (K.type' val2) Nothing)
-                (_, False, True) -> do
+            case (K.name val1, isVar val2) of
+                -- 前処理によって"_return"はletの左辺にのみ現れる
+                ("_return", _) -> do
+                    regName <- genUniqueText
+                    emit $ load (K.Var regName (typeOf val2) Nothing) val2
+                    emit $ Ret regName (typeOf val2)
+                (_, True) -> do
                     regName <- genUniqueText
                     allocate (K.name val1) (typeOf val1)
                     emit $ load (K.Var regName (typeOf val2) Nothing) val2
                     emit $ store val1 (K.Var regName (typeOf val2) Nothing)
-                (_, _, _) -> do
+                (_, _) -> do
                     allocate (K.name val1) (typeOf val1)
                     emit $ store val1 val2
-        (K.If condReg retReg cond then' else' _) -> do
+        (K.If condReg _ cond then' else' _) -> do
             [t,e,c, crName] <- replicateM 4 genUniqueText
-            mapM_ (kNormal2Instraction blockArgs) cond
+            mapM_ kNormal2Instraction cond
             emit $ load (K.Var crName (typeOf condReg) Nothing) condReg
             emit $ CBr (Reg crName $ typeOf condReg) ("then_"<>t) ("else_"<>e)
             emit $ Label ("then_"<>t)
-            mapM_ (kNormal2Instraction blockArgs) then'
+            mapM_ kNormal2Instraction then'
             emit $ Br ("continue_"<>c)
             emit $ Label ("else_"<>e)
-            mapM_ (kNormal2Instraction blockArgs) else'
+            mapM_ kNormal2Instraction else'
             emit $ Br ("continue_"<>c)
             emit $ Label ("continue_"<>c)
         where
-        isArg (K.Var name _ _) = name `elem` map K.name blockArgs
-        isArg _                = False
-
         isVar K.Var{} = True
         isVar _       = False
         store rd rs = Store (val2Ref rd) (val2Reg rs) (typeOf rd)
@@ -200,14 +235,8 @@ kNormal2Instraction blockArgs = \case
             K.Num{..} -> T.Type "I32"
             K.Str{..} -> T.Type "String"
 
-        genCallInst funName (K.Var "_return" type' _) args = do
-            let rd = K.Var "_return" type' Nothing
-            names <- replicateM (length args) genUniqueText
-            args' <- loadVars names args
-            emit $ Call funName (typeOf rd) (val2Reg rd) args'
-
         genCallInst funName rd args = do
-            names <- replicateM (length args) genUniqueText
+            regName:names <- replicateM (1+length args) genUniqueText
             args' <- loadVars names args
             regName <- genUniqueText
             emit $ Call funName (typeOf rd) (Reg regName (typeOf rd)) args'
@@ -223,12 +252,11 @@ kNormal2Instraction blockArgs = \case
 
         -- | 関数呼び出しの際に引数に変数が含まれていればそれをload
         --   loadした変数の名前を返す
-        loadVars names args = forM (zip names args) (\(newName, arg) -> case (isArg arg, arg) of
-            (False, K.Var{}) -> do
+        loadVars names args = forM (zip names args) (\(newName, arg) -> case arg of
+            K.Var{} -> do
                 emit $ load (K.Var newName (typeOf arg) Nothing) (K.Var (K.name arg) (typeOf arg) Nothing)
                 return $ Reg newName (typeOf arg)
-            (_, _) -> return $ val2Reg arg)
-
+            _ -> return $ val2Reg arg)
 
 val2Reg :: K.Val -> Reg
 val2Reg = \case
