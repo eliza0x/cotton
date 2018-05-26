@@ -135,13 +135,13 @@ expandReturn knorms = concat <$> mapM er knorms where
 expandArg :: [K.Val] -> IO ([Reg], [Instruction])
 expandArg args = do
     newNames <- C.replicateM (length args) uniqueText
-    let (args', header) = unzip $map
-            (\(arg, name) -> let 
+    let (args', header) = unzip $ zipWith
+            (\arg name -> let 
             type' = K.type' arg
             r = Reg name type'
             store = Store (val2Ref arg) r type'
             alloc = Alloca (val2Ref arg) type'
-            in (r, [alloc, store])) (zip args newNames) 
+            in (r, [alloc, store])) args newNames
     return (args', concat header)
 
 -- | LLVM IRを生成
