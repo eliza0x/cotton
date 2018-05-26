@@ -19,38 +19,24 @@ import Data.Maybe
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import Data.Map.Strict ((!), (!?))
-import qualified Data.Set as Se
+import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 
 import qualified Text.StringRandom as R
 
-import qualified Control.Monad.State.Strict as S
-import qualified Control.Monad.IO.Class as S
 import qualified Control.Monad.Free as F
+
+import qualified Control.Monad as C
+import Data.Monoid
+import Data.Functor
 
 import qualified Cotton.KNormalize as K
 import qualified Cotton.Type as T
 
-import Control.Monad.Free
-import Control.Monad
-import Data.Monoid
-import Data.Functor
-
 data LLVM_IR 
     = Fun  { label :: Text, retType :: T.Type, args :: [Reg], insts :: [Instruction] }
     | Bind { label :: Text, retType :: T.Type, ival :: Reg }
-    deriving Eq
-
-instance Show LLVM_IR where
-    show (Bind l t v)    = "@"++unpack l++" = global "++show t++" "++show v++" align 4\n"
-    show (Fun l t as is) = 
-        "define "++show t++" @"++unpack l++
-        "("++drop 2 (concatMap (\(Reg n t) -> ", "++show t++" %"++unpack n) as)++") "++ 
-        " {\n"++ concatMap (\i -> indent i ++ show i ++"\n") is ++ 
-        "}\n"
-        where    
-        indent Label{..}  = ""
-        indent _          = "\t"
+    deriving (Show, Eq)
 
 data Instruction 
     = Alloca { rd   :: Ref,            type' :: T.Type }
@@ -66,24 +52,7 @@ data Instruction
     | Br     { label' :: Text }
     | Ret    { label' :: Text, type' :: T.Type }
     | Label  { label' :: Text }
-    deriving Eq
-
-instance Show Instruction where
-    show = \case
-        (Alloca rd    type') -> show rd ++ " = alloca "++show type'++", align 4"
-        (Store  rd rs type') -> "store "++show type'++" "++show rs++", "++show type'++"* "++show rd++", align 4"
-        (Load   rd rs type') -> show rd ++ " = load "++show type'++", "++show type'++"* "++show rs++", align 4"
-        (Add    rd rs rt)    -> show rd ++ " = add nsw i32 "++show rs++", "++show rt
-        (Sub    rd rs rt)    -> show rd ++ " = sub nsw i32 "++show rs++", "++show rt
-        (Mul    rd rs rt)    -> show rd ++ " = mul nsw i32 "++show rs++", "++show rt
-        (Div    rd rs rt)    -> show rd ++ " = div nsw i32 "++show rs++", "++show rt
-        (Eqi    rd rs rt)    -> show rd ++ " = icmp eq i32 "++show rs++", "++show rt
-        (CBr cond t e)       -> "br i1 "++show cond++", label %"++unpack t++", label %"++unpack e
-        (Br     label')      -> "br label %"++unpack label'
-        (Label  label')      -> "\n"++unpack label'++":"
-        (Ret    label' t)      -> "ret "++show t++(if t == T.Type "Unit" then "" else " %"++unpack label')
-        (Call lbl type' rd args') -> show rd++" = call "++show type'++" @"++unpack lbl++
-                                    "("++drop 2 (concatMap (\(Reg n t) -> ", "++show t++" %"++unpack n) args')++") "
+    deriving (Show, Eq)
 
 data Ref = Ref Text T.Type
     deriving Eq
@@ -126,14 +95,14 @@ allocate name type' = F.wrap $ Allocate name type' (return ())
 
 runInstGenerator :: InstGenerator a -> IO [Instruction]
 runInstGenerator m = (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts) 
-                <$> runInstGeneratorIter Se.empty m where
-    runInstGeneratorIter :: Se.Set Text -> InstGenerator a -> IO [Instruction]
+                <$> runInstGeneratorIter S.empty m where
+    runInstGeneratorIter :: S.Set Text -> InstGenerator a -> IO [Instruction]
     runInstGeneratorIter alreadyAllocated = \case
         (F.Free (Emit inst cont)) -> (inst :) <$> runInstGeneratorIter alreadyAllocated cont
         (F.Free (GenUniqueText cont)) -> uniqueText >>= runInstGeneratorIter alreadyAllocated . cont
         (F.Free (Allocate name type' cont)) -> let 
-            alreadyAllocated' = name `Se.insert` alreadyAllocated
-            allocateInst = if name `Se.member` alreadyAllocated
+            alreadyAllocated' = name `S.insert` alreadyAllocated
+            allocateInst = if name `S.member` alreadyAllocated
                 then []
                 else [Alloca (Ref name type') type']
             in (allocateInst++) <$> runInstGeneratorIter alreadyAllocated' cont
@@ -165,7 +134,7 @@ expandReturn knorms = concat <$> mapM er knorms where
 -- | LLVMでは引数が参照ではなく値であるためこれを変換するIRと、新しい引数の変数名を生成する
 expandArg :: [K.Val] -> IO ([Reg], [Instruction])
 expandArg args = do
-    newNames <- replicateM (length args) uniqueText
+    newNames <- C.replicateM (length args) uniqueText
     let (args', header) = unzip $map
             (\(arg, name) -> let 
             type' = K.type' arg
@@ -226,7 +195,7 @@ kNormal2Instruction = \case
                     allocate (K.name val1) (typeOf val1)
                     emit $ store val1 val2
         (K.If condReg _ cond then' else' _) -> do
-            [t,e,c, crName] <- replicateM 4 genUniqueText
+            [t,e,c, crName] <- C.replicateM 4 genUniqueText
             mapM_ kNormal2Instruction cond
             emit $ load (K.Var crName (typeOf condReg) Nothing) condReg
             emit $ CBr (Reg crName $ typeOf condReg) ("then_"<>t) ("else_"<>e)
@@ -250,7 +219,7 @@ kNormal2Instruction = \case
             K.Str{..} -> T.Type "String"
 
         genCallInst funName rd args = do
-            regName:names <- replicateM (1+length args) genUniqueText
+            regName:names <- C.replicateM (1+length args) genUniqueText
             args' <- loadVars names args
             regName <- genUniqueText
             emit $ Call funName (typeOf rd) (Reg regName (typeOf rd)) args'
@@ -258,7 +227,7 @@ kNormal2Instruction = \case
             emit $ store rd (K.Var regName (typeOf rd) Nothing) 
 
         genOpInst op r1 r2 r3 = do
-            regName:names <- replicateM 3 genUniqueText
+            regName:names <- C.replicateM 3 genUniqueText
             [reg2, reg3] <- loadVars names [r2,r3]
             emit $ op (Reg regName $ typeOf r1) reg2 reg3
             allocate (K.name r1) (typeOf r1)
@@ -266,7 +235,7 @@ kNormal2Instruction = \case
 
         -- | 関数呼び出しの際に引数に変数が含まれていればそれをload
         --   loadした変数の名前を返す
-        loadVars names args = forM (zip names args) (\(newName, arg) -> case arg of
+        loadVars names args = C.forM (zip names args) (\(newName, arg) -> case arg of
             K.Var{} -> do
                 emit $ load (K.Var newName (typeOf arg) Nothing) (K.Var (K.name arg) (typeOf arg) Nothing)
                 return $ Reg newName (typeOf arg)

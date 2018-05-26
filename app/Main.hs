@@ -8,5 +8,5 @@ import qualified Data.Text.IO as T
 main :: IO ()
 main = do
     args <- getArgs 
-    when (length args >= 1)
+    unless (null args)
         $ T.putStrLn =<< compile =<< readFile (args!!0)
