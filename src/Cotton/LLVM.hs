@@ -17,6 +17,7 @@ module Cotton.LLVM where
 
 import Data.Maybe
 import Data.Text (Text, unpack)
+import qualified Data.Text as T
 import Data.Map.Strict ((!), (!?))
 import qualified Data.Set as Se
 import qualified Data.Map.Strict as M
@@ -282,3 +283,49 @@ val2Ref :: K.Val -> Ref
 val2Ref = \case
     K.Var{..} -> Ref name type'
     v         -> error $ "con't convert ref type: " ++ show v
+
+toText :: [LLVM_IR] -> Text
+toText = T.concat  . map block2Text
+    where
+    showT :: Show a => a -> Text
+    showT = T.pack . show
+
+    block2Text :: LLVM_IR -> Text
+    block2Text (Bind l t v)    = "@"<>l<>" = global "<>showT t<>" "<>reg2Text v<>" align 4\n"
+    block2Text (Fun l t as is) = 
+        "define "<>showT t<>" @"<>l<>
+        "("<>T.drop 2 (T.concat (map (\(Reg n t) -> ", "<>showT t<>" %"<>n) as))<>") "<> 
+        " {\n"<> T.concat (map (\i -> indent i <> inst2Text i <>"\n") is) <> 
+        "}\n"
+        where    
+        indent Label{..}  = ""
+        indent _          = "\t"
+
+    inst2Text :: Instruction -> Text
+    inst2Text = \case
+        (Alloca rd    type') -> ref2Text rd <> " = alloca "<>showT type'<>", align 4"
+        (Store  rd rs type') -> "store "<>showT type'<>" "<>reg2Text rs<>", "<>showT type'<>"* "<>ref2Text rd<>", align 4"
+        (Load   rd rs type') -> reg2Text rd <> " = load "<>showT type'<>", "<>showT type'<>"* "<>ref2Text rs<>", align 4"
+        (Add    rd rs rt)    -> reg2Text rd <> " = add nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
+        (Sub    rd rs rt)    -> reg2Text rd <> " = sub nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
+        (Mul    rd rs rt)    -> reg2Text rd <> " = mul nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
+        (Div    rd rs rt)    -> reg2Text rd <> " = div nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
+        (Eqi    rd rs rt)    -> reg2Text rd <> " = icmp eq i32 "<>reg2Text rs<>", "<>reg2Text rt
+        (CBr cond t e)       -> "br i1 "<>reg2Text cond<>", label %"<>t<>", label %"<>e
+        (Br     label')      -> "br label %"<>label'
+        (Ret    label' t)    -> "ret "<>showT t<>(if t == T.Type "Unit" then "" else " %"<>label')
+        (Label  label')      -> "\n"<>label'<>":"
+        (Call lbl type' rd args') -> reg2Text rd<>" = call "<>showT type'<>" @"<>lbl<>
+                                    "("<>T.drop 2 (T.concat $ map (\(Reg n t) -> ", "<>showT t<>" %"<>n) args')<>") "
+
+    ref2Text :: Ref -> Text
+    ref2Text (Ref t _) = "%" <> t
+
+    reg2Text :: Reg -> Text
+    reg2Text (I32 n)    = showT n
+    reg2Text (Str t)    = showT t
+    reg2Text (Reg t _)  = "%"<>t
+    reg2Text (GReg t _) = "@"<>t -- グローバル変数
+    reg2Text Null       = "null"   -- 書き込み専用
+
+

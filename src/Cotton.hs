@@ -13,7 +13,7 @@ import Cotton.Type
 import Cotton.LLVM
 
 -- | 文字列を投げ込めばいい感じにやってくれる
-compile :: String -> IO String
+compile :: String -> IO Text
 compile sourceCode = do
     let token = lexer sourceCode :: [Token]
     print token
@@ -48,6 +48,6 @@ compile sourceCode = do
             putStrLn "LLVM IR\n"
             return ""
             llvmir <- knorm2llvmir knorm
-            let asm = map show llvmir
-            return $ concat asm
+            let text = toText llvmir
+            return text
 
