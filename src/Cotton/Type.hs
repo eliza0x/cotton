@@ -22,6 +22,8 @@ import qualified Control.Monad.State.Strict as S
 data Type 
     = Type Text
     | Func [Type] Type
+    | Structure [Type]
+    | TypeVar Text
     | Bottom
     deriving Eq
 
