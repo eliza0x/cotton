@@ -1,0 +1,8 @@
+def main(): I32 {
+    def n: Ref<I32> = ref(10);
+    n <- unref(n) + 10;
+    n <- unref(n) + 10;
+    n <- unref(n) + 10;
+    n <- unref(n) + 10;
+    unref(n)
+}

@@ -140,14 +140,10 @@ expandArg args = do
     (args', header) <- unzip <$> C.forM args (\arg -> do
         [name, name', name''] <- C.replicateM 3 uniqueText
         let type' = K.type' arg
-        case type' of
-            T.Ref _ ->
-                return (val2Reg arg, [])
-            _       -> do
-                let r     = Reg name type'
-                    alloc = Alloca (val2Reg arg)
-                    store = Store  (val2Reg arg) r
-                return (r, [alloc, store]))
+        let r     = Reg name type'
+            alloc = Alloca (val2Reg arg)
+            store = Store  (Reg (K.name arg) (T.Ref $ typeOfK arg)) r
+        return (r, [alloc, store]))
     return (args', concat header)
 
 -- | LLVM IRを生成
@@ -247,7 +243,7 @@ kNormal2Instruction = \case
             args' <- loadVars names args
             regName <- genUniqueText
             emit $ Call funName (typeOfK rd) (Reg regName (typeOfK rd)) args'
-            allocate (K.name rd) (T.Ref $ typeOfK rd)
+            allocate (K.name rd) (typeOfK rd)
             emit $ Store (Reg (K.name rd) (T.Ref $ typeOfK rd)) (Reg regName (typeOfK rd)) 
 
         genOpInst :: (Reg -> Reg -> Reg -> Instruction) -> K.Val -> K.Val -> K.Val -> InstGenerator ()
@@ -261,8 +257,6 @@ kNormal2Instruction = \case
         -- | 関数呼び出しの際に引数に変数が含まれていればそれをload
         --   loadした変数を返す
         loadVars names args = C.forM (zip names args) (\(newName, arg) -> case arg of
-            -- Refは参照を意味するためポインタを渡す
-            (K.Var _ (T.Ref _) _) -> return $ val2Reg arg
             K.Var{} -> do
                 emit $ Load (Reg newName $ typeOfK arg) (Reg (K.name arg) (T.Ref $ typeOfK arg))
                 return $ Reg newName (typeOfK arg)

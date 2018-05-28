@@ -1,7 +1,7 @@
-def f(n: Int): Int {
+def f(n: I32): I32 {
     n + 10
 }
 
-def main(): Int {
+def main(): I32 {
     f(10)
 }
