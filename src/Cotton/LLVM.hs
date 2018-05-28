@@ -34,6 +34,8 @@ import qualified Cotton.KNormalize as K
 import qualified Cotton.Type.Type as T
 import qualified Cotton.Type as T
 
+import Debug.Trace
+
 data LLVM_IR 
     = Fun  { label :: Text, retType :: T.Type, args :: [Reg], insts :: [Instruction] }
     | Bind { label :: Text, retType :: T.Type, ival :: Reg }
@@ -88,8 +90,8 @@ allocate :: Text -> T.Type -> InstGenerator ()
 allocate name type' = F.wrap $ Allocate name type' (return ())
 
 runInstGenerator :: [Text] -> InstGenerator a -> IO [Instruction]
-runInstGenerator args m = (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts) 
-                <$> runInstGeneratorIter initState m 
+runInstGenerator args m = -- (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts) <$>
+                runInstGeneratorIter initState m 
     where
     initState = foldr (\name s -> name `S.insert` s) S.empty args 
     runInstGeneratorIter :: S.Set Text -> InstGenerator a -> IO [Instruction]
@@ -100,7 +102,7 @@ runInstGenerator args m = (\insts -> filter isAlloca insts ++ filter (not . isAl
             alreadyAllocated' = name `S.insert` alreadyAllocated
             allocateInst = case (name `S.member` alreadyAllocated, type') of
                 (True , _) -> []
-                (False, T.Ref type'') -> [Alloca (Reg name type'')]
+                -- (False, T.Ref type'') -> [Alloca (Reg name type'')]
                 (False, _           ) -> [Alloca (Reg name type')]
             in (allocateInst++) <$> runInstGeneratorIter alreadyAllocated' cont
         (F.Pure _) -> return []
@@ -117,10 +119,13 @@ expandReturn knorms = concat <$> mapM er knorms where
     er knorm = do
         n <- uniqueText
         case knorm of
-            (K.Op op (K.Var "_return" t _) r2 r3 p)       -> return [K.Op op (K.Var n t p) r2 r3 p   , genLet n t]
-            (K.Call  (K.Var "_return" t _) fun args p)    -> return [K.Call  (K.Var n t p) fun args p, genLet n t]
-            (K.Let   (K.Var "_return" t _) r2 p)          -> return [K.Let   (K.Var n t p) r2 p      , genLet n t]
-            (K.If    (K.Var "_return" t _) cr cs ts es p) -> do
+            (K.Op op     (K.Var "_return" t _) r2 r3 p)       -> return [K.Op op (K.Var n t p) r2 r3 p   , genLet n t]
+            (K.Call      (K.Var "_return" t _) fun args p)    -> return [K.Call  (K.Var n t p) fun args p, genLet n t]
+            (K.Let       (K.Var "_return" t _) r2 p)          -> return [K.Let   (K.Var n t p) r2 p      , genLet n t]
+            (K.Ref       (K.Var "_return" t _) r2 p)          -> return [K.Ref   (K.Var n t p) r2 p      , genLet n t]
+            (K.UnRef     (K.Var "_return" t _) r2 p)          -> return [K.UnRef (K.Var n t p) r2 p      , genLet n t]
+            (K.Overwrite (K.Var "_return" t _) rs p)          -> return [K.Overwrite (K.Var n t p) rs p  , genLet n t]
+            (K.If        (K.Var "_return" t _) cr cs ts es p) -> do
                 cs' <- expandReturn cs
                 ts' <- expandReturn ts
                 es' <- expandReturn es
@@ -173,56 +178,53 @@ block2LLVM_IR = \case
 
 kNormal2Instruction ::  K.KNormal -> InstGenerator ()
 kNormal2Instruction = \case
-        (K.Op "+"  r1 r2 r3 _) -> genOpInst Add r1 r2 r3
-        (K.Op "-"  r1 r2 r3 _) -> genOpInst Sub r1 r2 r3
-        (K.Op "*"  r1 r2 r3 _) -> genOpInst Mul r1 r2 r3
-        (K.Op "/"  r1 r2 r3 _) -> genOpInst Div r1 r2 r3
-        (K.Op "==" r1 r2 r3 _) -> genOpInst Eqi r1 r2 r3
-        (K.Op fun  r1 r2 r3 _) -> genCallInst fun r1 [r2,r3]
-        (K.Call r1 fun args _) -> genCallInst fun r1 args
-        K.Let{..}              ->
-            case (K.name val1, typeOfK val1, typeOfK val2, isVar val2) of
-                -- 前処理によって"_return"はletの左辺にのみ現れる
-                -- Ref<a>をReturnする場合のみRef<a>を返す
-                -- ret Ref<a>
-                ("_return", _, T.Ref _, True) -> do
-                    [regName, regName'] <- C.replicateM 2 genUniqueText
-                    allocate regName  (T.Ref $ typeOfK val2)
-                    emit $ Store (Reg regName (T.Ref $ typeOfK val2)) (val2Reg val2)
-                    emit $ Load  (Reg regName'        (typeOfK val2)) (Reg regName (T.Ref $ typeOfK val2))
-                    emit $ Ret regName' (typeOfK val2)
+        (K.Op "+"  r1 r2 r3 _) -> emit (Label "; add" ) >> genOpInst Add r1 r2 r3
+        (K.Op "-"  r1 r2 r3 _) -> emit (Label "; sub" ) >> genOpInst Sub r1 r2 r3
+        (K.Op "*"  r1 r2 r3 _) -> emit (Label "; mul" ) >> genOpInst Mul r1 r2 r3
+        (K.Op "/"  r1 r2 r3 _) -> emit (Label "; div" ) >> genOpInst Div r1 r2 r3
+        (K.Op "==" r1 r2 r3 _) -> emit (Label "; eqi" ) >> genOpInst Eqi r1 r2 r3
+        (K.Op fun  r1 r2 r3 _) -> emit (Label "; fun" ) >> genCallInst fun r1 [r2,r3]
+        (K.Call r1 fun args _) -> emit (Label "; call") >> genCallInst fun r1 args
+        (K.UnRef   r1 r2 _)    -> do
+            emit $ Label "; 1"
+            regName <- genUniqueText
+            emit $ Load  (Reg (K.name r1) (T.Ref $ typeOfK r1)) (Reg (K.name r2) (T.Ref $ typeOfK r2))
 
-                -- ret a
-                ("_return", _, _, _) -> do
+        (K.Ref   r1 r2 _)      -> do
+            emit $ Label "; 2"
+            regName <- genUniqueText
+            allocate (K.name r1)  (typeOfK r1)
+            emit $ Store (Reg (K.name r1) (T.Ref $ typeOfK r1)) (Reg (K.name r2) (T.Ref $ typeOfK r2))
+
+        (K.Overwrite rd rs _)  -> do
+            [rd', rs'] <- C.replicateM 2 genUniqueText
+            emit $ Load  (Reg rd' $ typeOfK rd) (Reg (K.name rd) (T.Ref $ typeOfK rd)) 
+            emit $ Load  (Reg rs' $ typeOfK rs) (Reg (K.name rs) (T.Ref $ typeOfK rs)) 
+            emit $ Store (Reg rd' (typeOfK rd)) (Reg rs' (typeOfK rs))
+
+        K.Let{..}              ->
+            case (K.name val1, isVar val2) of
+                -- 前処理によって"_return"はletの左辺にのみ現れる
+                ("_return", _) -> do
+                    emit $ Label "; 3"
                     regName <- genUniqueText
                     emit $ Load (Reg regName $ typeOfK val2) (Reg (K.name val2) (T.Ref $ typeOfK val2)) 
                     emit $ Ret regName (typeOfK val2)
 
-                -- Ref<a>型には直接Storeする
-                -- Ref<a> <- a
-                (_, _, T.Ref _, True) -> do
-                    regName <- genUniqueText
-                    allocate regName  (T.Ref $ typeOfK val2)
-                    emit $ Store (Reg regName (T.Ref $ typeOfK val2)) (val2Reg val2)
-                    emit $ Load  (Reg (K.name val1)   (typeOfK val2)) (Reg regName (T.Ref $ typeOfK val2))
-
                 -- a <- a
-                (_, _, _, True) -> do
+                (_, True) -> do
+                    emit $ Label "; 4"
                     regName <- genUniqueText
                     allocate (K.name val1) (typeOfK val1)
                     emit $ Load (Reg regName $ typeOfK val2) (Reg (K.name val2) (T.Ref $ typeOfK val2)) 
-                    emit $ Store (val2Reg val1) (Reg regName (T.Ref $ typeOfK val2))
-                
-                -- Ref<a> <- a
-                -- Ref型には直接代入する
-                (_, T.Ref _, _, _) -> do
-                    allocate (K.name val1) (typeOfK val1)
-                    emit $ Store (val2Reg val1) (val2Reg val2)
+                    emit $ Store (Reg (K.name val1) (T.Ref $ typeOfK val2)) (Reg regName (typeOfK val2))
                 
                 -- a <- a
-                (_, _, _, _) -> do
+                (_, _) -> do
+                    emit $ Label "; 5"
                     allocate (K.name val1) (typeOfK val1)
                     emit $ Store (Reg (K.name val1) (T.Ref $ typeOfK val1)) (val2Reg val2)
+
         (K.If condReg _ cond then' else' _) -> do
             [t,e,c, crName] <- C.replicateM 4 genUniqueText
             mapM_ kNormal2Instruction cond
@@ -246,16 +248,15 @@ kNormal2Instruction = \case
             regName <- genUniqueText
             emit $ Call funName (typeOfK rd) (Reg regName (typeOfK rd)) args'
             allocate (K.name rd) (T.Ref $ typeOfK rd)
-            emit $ Store (Reg (K.name rd) (T.Ref $ typeOfK rd)) (Reg regName $ (typeOfK rd)) 
+            emit $ Store (Reg (K.name rd) (T.Ref $ typeOfK rd)) (Reg regName (typeOfK rd)) 
 
         genOpInst :: (Reg -> Reg -> Reg -> Instruction) -> K.Val -> K.Val -> K.Val -> InstGenerator ()
         genOpInst op r1 r2 r3 = do
             regName:names <- C.replicateM 3 genUniqueText
             [reg2, reg3] <- loadVars names [r2,r3]
             emit $ op (Reg regName $ typeOfK r1) reg2 reg3
-            C.unless (isRef $ typeOfK r1) $
-                allocate (K.name r1) (T.Ref $ typeOfK r1)
-            emit $ Store (val2Reg r1) (Reg regName (T.Ref $ typeOfK r1))
+            allocate (K.name r1) (typeOfK r1)
+            emit $ Store (Reg (K.name r1) (T.Ref $ typeOfK r1)) (Reg regName (typeOfK r1))
 
         -- | 関数呼び出しの際に引数に変数が含まれていればそれをload
         --   loadした変数を返す
@@ -263,9 +264,11 @@ kNormal2Instruction = \case
             -- Refは参照を意味するためポインタを渡す
             (K.Var _ (T.Ref _) _) -> return $ val2Reg arg
             K.Var{} -> do
-                emit $ Load (Reg newName $ typeOfK arg) (Reg (K.name arg) (typeOfK arg))
+                emit $ Load (Reg newName $ typeOfK arg) (Reg (K.name arg) (T.Ref $ typeOfK arg))
                 return $ Reg newName (typeOfK arg)
             _ -> return $ val2Reg arg)
+
+unRef (T.Ref t) = t
 
 val2Reg :: K.Val -> Reg
 val2Reg = \case
@@ -312,11 +315,6 @@ toText = T.concat  . map block2Text
     reg2Text (Str t)    = showT t
     reg2Text (Reg t _)  = "%"<>t
     reg2Text (GReg t _) = "@"<>t -- グローバル変数
-
-isRef (T.Ref _) = True
-isRef _       = False
-
-unRef (T.Ref t) = t
 
 typeOf = \case
     (I32     _  ) -> T.Type "I32"

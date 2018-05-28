@@ -36,7 +36,7 @@ import qualified Cotton.Lexer as L
 import qualified Cotton.Type.Type as T
 import qualified Cotton.Type as T
 
-import Data.Map.Strict (Map, (!?))
+import Data.Map.Strict (Map, (!?), (!))
 import qualified Data.Map.Strict as M
 
 import Data.Maybe (fromMaybe)
@@ -60,6 +60,9 @@ data Block
 
 data KNormal
     = Let       {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | Overwrite {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | UnRef     {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | Ref       {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
     | Op        { op :: Text,  val1 :: Val, val2 :: Val, val3 :: Val, pos :: Maybe L.AlexPosn }
     | Call      { var1 :: Val, fun :: Text, args' :: [Val]               , pos :: Maybe L.AlexPosn }
     | If        { condVar :: Val, retVar :: Val, cond :: [KNormal], then' :: [KNormal], else' :: [KNormal], pos :: Maybe L.AlexPosn }
@@ -123,19 +126,30 @@ knormalize typeEnv = mapM knormalize'
                 knormalizeTerm' retVar term'
             C.Overwrite{..} -> do
                 -- 式の返り値を変数名にすることで代入先を決定
-                let var' = Var var type' Nothing
-                knormalizeTerm' var' term
+                n <- E.liftEff #io uniqueVarName
+                let var'  = Var var type' Nothing
+                let var'' = Var n   (unRef type') Nothing
+                knormalizeTerm' var'' term
+                E.tellEff #knorm [Overwrite var' var'' (Just pos)]
             C.Op{..}  -> do
                 let T.Func [t, t'] _ = fromMaybe (error $ "undefined operator: " ++ unpack op) $ typeOf !? op
-
                 [n, n']  <- E.liftEff #io $ replicateM 2 uniqueVarName
                 let (var, var') = (Var n t Nothing, Var n' t' Nothing)
-
                 knormalizeTerm' var  term
                 knormalizeTerm' var' term'
                 E.tellEff #knorm [Op op retVar var var' (Just pos)]
-            (C.Call "ref"   [t] _) -> knormalizeTerm' retVar t
-            (C.Call "unref" [t] _) -> knormalizeTerm' retVar t
+            (C.Call "ref"   [t] p) -> do
+                [n, m] <- E.liftEff #io $ replicateM 2 uniqueVarName
+                knormalizeTerm' (Var n (unRef $ type' retVar) (Just p)) t
+                let rd = Var (name retVar) (type' retVar) (Just p)
+                    rs = Var n (unRef $ type' retVar) (Just p)
+                E.tellEff #knorm [Ref rd rs (Just p)]
+            (C.Call "unref" [t] p) -> do
+                [n, m] <- E.liftEff #io $ replicateM 2 uniqueVarName
+                knormalizeTerm' (Var n (T.Ref $ type' retVar) (Just p)) t
+                let rd = Var (name retVar) (type' retVar) (Just p)
+                    rs = Var n (T.Ref $ type' retVar) (Just p)
+                E.tellEff #knorm [UnRef rd rs (Just p)]
             C.Call{..} -> do
                 args <- E.liftEff #io $ mapM (const uniqueVarName) [1..length targs] 
                 let T.Func types _ = fromMaybe (error $ "undefined arguments: " ++ show args) $ typeOf !? var
@@ -155,10 +169,15 @@ knormalize typeEnv = mapM knormalize'
             uniqueVarName :: IO Text
             uniqueVarName = R.stringRandomIO "[a-zA-Z][a-zA-Z0-9_]{7}"
 
+            unRef (T.Ref t) = t
+
 instance Show KNormal where
-    show (Let v v' _p)      = show v  ++ " = " ++ show v'
-    show (Op op v1 v2 v3 _) = show v1 ++ " = " ++ show v2  ++ " " ++ unpack op ++ " " ++ show v3
-    show (Call v1 l as _)   = show v1 ++ " = " ++ unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
+    show (Let v v' _p)       = show v  ++ " = " ++ show v'
+    show (Overwrite v v' _p) = show v  ++ " <- " ++ show v'
+    show (UnRef v v' _p)     = show v  ++ " = unref(" ++ show v' ++ ")"
+    show (Ref v v' _p)       = show v  ++ " = ref(" ++ show v' ++ ")"
+    show (Op op v1 v2 v3 _)  = show v1 ++ " = " ++ show v2  ++ " " ++ unpack op ++ " " ++ show v3
+    show (Call v1 l as _)    = show v1 ++ " = " ++ unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
     show (If cv rv c e e' _) = unlines (map show c) ++ "if "++show cv++" {\n" ++ (addIndent . unlines $ map show e) 
                             ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
 
@@ -168,10 +187,11 @@ instance Show Block where
     show (Bind l t es _p)   = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
 
 instance Show Val where
-    show (Var n t _) = unpack n
+    show (Var n t _) = unpack n++": "++show t
     show NullVar     = "_"
     show (Num n _)   = show n
     show (Str t _)   = show t
     -- show (Var n t _) = unpack n ++ ": " ++ show t
 
 addIndent = unlines . map ("\t"++) . lines
+
