@@ -21,6 +21,8 @@ module Cotton.Parser (
 import Prelude hiding (Num)
 import Data.Text (Text(..), unpack)
 import qualified Cotton.Lexer as CL
+import qualified Cotton.Type.Type as T
+import Cotton.Stmt
 }
 
 -- 生成するパーサの名前を指定
@@ -43,6 +45,8 @@ import qualified Cotton.Lexer as CL
   else      { CL.Else       $$ }
   '<-'      { CL.LArrow     $$ }
   '->'      { CL.RArrow     $$ }
+  '<'       { CL.LAngle     $$ }
+  '>'       { CL.RAngle     $$ }
   '='       { CL.Equal      $$ }
   '`'       { CL.BackQuote  $$ }
   '"'       { CL.Quort      $$ }
@@ -58,8 +62,8 @@ import qualified Cotton.Lexer as CL
   ']'       { CL.RBracket   $$ }
   num       { CL.Num     $$ }
   op        { CL.Op      $$ }
-  var       { CL.Lower   $$ }
-  type      { CL.Upper   $$ }
+  lower     { CL.Lower   $$ }
+  upper     { CL.Upper   $$ }
   str       { CL.Str     $$ }
 
 %%
@@ -84,15 +88,15 @@ Stmts2  : Bind Stmts2            { fst $1 : $2 }
         | Fun                    {% fail $ "statement must be finish term." ++ show (snd $1) }
 
 Bind :: { (Stmt, CL.AlexPosn) }
-Bind    : def Lower ':' Upper '=' Term ';'   
+Bind    : def Lower ':' Type '=' Term ';'   
         { (Bind { label = fst $2, type' = fst $4, stmt = [ETerm $ fst $6], pos = CL.pos $1 }, CL.pos $1) }
-        | def Lower ':' Upper '{' Stmts2 '}' 
+        | def Lower ':' Type '{' Stmts2 '}' 
         { (Bind { label = fst $2, type' = fst $4, stmt = $6,               pos = CL.pos $1 }, CL.pos $1) }
 
 Fun :: { (Stmt, CL.AlexPosn) }
-Fun     : def Lower '(' Args ')' ':' Upper '=' Term ';'
+Fun     : def Lower '(' Args ')' ':' Type '=' Term ';'
         { (Fun { label = fst $2 , args = $4, type' = fst $7, stmt = [ETerm $ fst $9], pos = CL.pos $1 }, CL.pos $1) }
-        | def Lower '(' Args ')' ':' Upper '{' Stmts2 '}'
+        | def Lower '(' Args ')' ':' Type '{' Stmts2 '}'
         { (Fun { label = fst $2 , args = $4, type' = fst $7, stmt  = $9,        pos = CL.pos $1 }, CL.pos $1) }
 
 -- | 式
@@ -128,7 +132,7 @@ Args    : Arg ',' Args          { $1 : $3 }
         |                       { [] }
  
 Arg :: { Arg }
-Arg     : Lower ':' Upper          { Arg { argName  = fst $1, type'' = Just (fst $3), apos = snd $1} }
+Arg     : Lower ':' Type          { Arg { argName  = fst $1, type'' = Just (fst $3), apos = snd $1} }
         | Lower                    { Arg { argName  = fst $1, type'' = Nothing,       apos = snd $1} }
 
 -----------------------------------------------------------------------------
@@ -140,74 +144,34 @@ Num     : num   { (CL.num $1, CL.pos $1) }
 -- | 演算子
 Op :: { (Text, CL.AlexPosn) } 
 Op      : op    { (CL.text $1, CL.pos $1) } 
-        | var   {% fail $ "Require operator: " ++ show (CL.pos $1) }
-        | type  {% fail $ "Require operator: " ++ show (CL.pos $1) }
+        | lower {% fail $ "Require operator: " ++ show (CL.pos $1) }
+        | upper {% fail $ "Require operator: " ++ show (CL.pos $1) }
 
 -- | 関数、変数
 Lower :: { (Text, CL.AlexPosn) } 
-Lower   : var   { (CL.text $1, CL.pos $1) } 
-        | type  {% fail $ "Require upper case: " ++ show (CL.pos $1) }
+Lower   : lower { (CL.text $1, CL.pos $1) } 
+        | upper {% fail $ "Require upper case: " ++ show (CL.pos $1) }
         | op    {% fail $ "Require upper case: " ++ show (CL.pos $1) }
 
 -- | 型
-Upper :: { (Text, CL.AlexPosn) } 
-Upper   : type  { (CL.text $1, CL.pos $1) } 
-        | var   {% fail $ "Require lower case: " ++ show (CL.pos $1) }
-        | op    {% fail $ "Require upper case: " ++ show (CL.pos $1) }
+Type :: { (T.Type, CL.AlexPosn) } 
+Type   : upper '<' Type '>'      { (T.Ref $ fst $3, CL.pos $1) } 
+       | '(' Types ')' '->' Type { (T.Func $2 (fst $5), snd $5) } 
+       | upper                   { (T.Type $ CL.text $1, CL.pos $1) } 
+       | lower                   { (T.TypeVar $ CL.text $1, CL.pos $1) }
+       | op                      {% fail $ "Require upper case: " ++ show (CL.pos $1) }
+
+Types :: { [T.Type] }
+Types  : Type ',' Types     { fst $1 : $3 }
+       | Type               { [fst $1] }
+       |                    { [] }
 
 -----------------------------------------------------------------------------
 
 {
-
--- | 文
-data Stmt =
-      Bind { label :: Text, type' :: Text, stmt :: [Stmt], pos :: CL.AlexPosn  }
-    | Fun  { label :: Text, args  :: [Arg], type' :: Text, stmt :: [Stmt], pos ::CL.AlexPosn }
-    | ETerm Term
-    deriving Eq
-
--- | 式
-data Term
-    = TInt      { num  :: Int,  tpos   :: CL.AlexPosn } -- 整数
-    | Var       { var  :: Text, tpos   :: CL.AlexPosn } -- 名前
-    | TStr      { text :: Text, tpos   :: CL.AlexPosn } -- 名前
-    | Overwrite { var  :: Text, term   :: Term,   tpos    :: CL.AlexPosn }                 -- 変数上書き
-    | Op        { op   :: Text, term   :: Term,   term'   :: Term, tpos :: CL.AlexPosn }   -- 演算子
-    | Call      { var  :: Text, targs  :: [Term], tpos    :: CL.AlexPosn }                 -- Call
-    | SemiColon { term :: Term, term'  :: Term,   tpos    :: CL.AlexPosn }                 -- 連結
-    | If        { cond :: Term, tstmts :: [Stmt], tstmts' :: [Stmt], tpos :: CL.AlexPosn } -- if式
-    deriving Eq
-
-data Arg = Arg { argName :: Text, type'' :: Maybe Text, apos :: CL.AlexPosn }
-    deriving Eq
-
 parseError :: [CL.Token] -> a
 parseError ts = error $ "Parse error - line: " ++ show ts
 
 parser :: [CL.Token] -> Either Text [Stmt]
 parser tokens = lawParser tokens
-
-instance Show Term where
-    show (TInt n _)         = show n
-    show (Var l  _)         = unpack l
-    show (TStr t _)         = unpack t
-    show (Op op t t' _)     = show t ++ " " ++ unpack op ++ " " ++ show t'
-    show (Call l  as _)     = unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
-    show (TInt n _)         = show n
-    show (SemiColon t t' _) = show t ++ ";\n" ++ show t'
-    show (If c e e' _)      = "if " ++ show c ++ " {\n" ++ (addIndent . unlines $ map show e) 
-                            ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
-    show (Overwrite l t _)  = unpack l ++ " <- " ++ show t
-
-instance Show Stmt where
-    show (ETerm t)          = show t
-    show (Bind l t es _p)   = concat ["def ",unpack l,": ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
-    show (Fun l as t es _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as
-                                     ,"): ",unpack t," {\n",addIndent . unlines $ map show es,"}"]
-
-instance Show Arg where
-    show (Arg a (Just t) _) = unpack a ++ ": " ++ unpack t
-    show (Arg a Nothing  _) = unpack a
-
-addIndent = unlines . map ("\t"++) . lines
 }

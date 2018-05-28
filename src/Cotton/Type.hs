@@ -2,8 +2,9 @@
 
 module Cotton.Type where
 
-import Cotton.Parser (Stmt(..), Term(..), Arg(..))
-import qualified Cotton.Parser as P
+import Cotton.Stmt
+import qualified Cotton.Stmt as P
+import Cotton.Type.Type
 
 import Debug.Trace
 
@@ -19,21 +20,6 @@ import qualified Data.Set as S
 import Control.Monad.State.Strict (State(..))
 import qualified Control.Monad.State.Strict as S
 
-data Type 
-    = Type Text
-    | Func [Type] Type
-    | Structure [Type]
-    | TypeVar Text
-    | Bottom
-    deriving Eq
-
-instance Show Type where
-    show (Type "I32") = "i32"
-    show (Type "Bool") = "i1"
-    show (Type "Unit") = "void"
-    show (Type t) = unpack t
-    show (Func as t) = "("++drop 2 (concatMap (\a -> ", " ++ show a) as)++"): "++show t
-
 type EnvM = State Env
 
 newtype Env = Env { _typeOf :: Map Text Type }
@@ -44,31 +30,33 @@ makeLenses ''Env
 typeCheck :: [Stmt] -> Env
 typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
     where
-    initState = Env $ M.fromList [ ("+",  Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("-",  Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("*",  Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("/",  Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("==", Func [Type "I32", Type "I32"] (Type "Bool"))
+    initState = Env $ M.fromList [ ("+",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("-",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("*",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("/",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                 , ("==",    Func [Type "I32", Type "I32"] (Type "Bool"))
+                                 , ("ref",   Func [Type "I32"] (Ref $ Type "I32"))
+                                 , ("unref", Func [Ref $ Type "I32"] (Type "I32"))
                                  ]
     typeCheck' :: Stmt -> EnvM Type
     typeCheck' = \case
         Bind{..} -> do 
-            updateEnv label (Type type')
+            updateEnv label type'
             type'' <- last <$> mapM typeCheck' stmt
-            when (Type type' /= type'') $ error "type error."
+            when (type' /= type'') $ error $ "type error.\n"++show type'++"\n"++show type''
             return type''
         Fun{..}  -> do 
             checkArgs args
-            updateEnv label (Func (map (Type . fromJust . P.type'') args) $ Type type') 
+            updateEnv label (Func (map (fromJust . P.type'') args) type') 
             types <- mapM typeCheck' stmt
-            when (Type type' /= last types)
+            when (type' /= last types)
                 (error $ "type error.\nactual type: "++show (last types)
                                 ++"\nexpected type: "++show type'
                                 ++"\npos: "++show pos)
             return $ last types
         (ETerm term) -> typeCheck'' term
         where
-        checkArgs args = forM_ args (\arg -> updateEnv (P.argName arg) (Type . fromJust $ P.type'' arg))
+        checkArgs args = forM_ args (\arg -> updateEnv (P.argName arg) (fromJust $ P.type'' arg))
         updateEnv label type' = do
             type'' <- uses typeOf (!? label)
             when (isJust type'' && fromJust type'' /= type') 
@@ -83,7 +71,7 @@ typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
         Overwrite{..} -> do
             type' <- fromMaybe (error $ "this variable is not defined: "++show var) <$> getType var 
             type'' <- typeCheck'' term
-            when (type' /= type'') $ error ("type error.\n"++show var++": "++show type' ++ "\n"++show term++": "++show type'')
+            when (type' /= Ref type'') $ error ("type error.\n"++show var++": "++show type' ++ "\n"++show term++": "++show type'')
             return $ Type "Unit"
         Op{..}        -> do
             typeTerm  <- typeCheck'' term

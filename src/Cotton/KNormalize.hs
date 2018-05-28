@@ -32,8 +32,9 @@ module Cotton.KNormalize where
 
 import Cotton.Closure (Stmt, Term)
 import qualified Cotton.Closure as C
-import qualified Cotton.Lexer  as L
-import qualified Cotton.Type   as T
+import qualified Cotton.Lexer as L
+import qualified Cotton.Type.Type as T
+import qualified Cotton.Type as T
 
 import Data.Map.Strict (Map, (!?))
 import qualified Data.Map.Strict as M
@@ -59,7 +60,6 @@ data Block
 
 data KNormal
     = Let       {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
-    | OverWrite {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
     | Op        { op :: Text,  val1 :: Val, val2 :: Val, val3 :: Val, pos :: Maybe L.AlexPosn }
     | Call      { var1 :: Val, fun :: Text, args' :: [Val]               , pos :: Maybe L.AlexPosn }
     | If        { condVar :: Val, retVar :: Val, cond :: [KNormal], then' :: [KNormal], else' :: [KNormal], pos :: Maybe L.AlexPosn }
@@ -134,6 +134,8 @@ knormalize typeEnv = mapM knormalize'
                 knormalizeTerm' var  term
                 knormalizeTerm' var' term'
                 E.tellEff #knorm [Op op retVar var var' (Just pos)]
+            (C.Call "ref"   [t] _) -> knormalizeTerm' retVar t
+            (C.Call "unref" [t] _) -> knormalizeTerm' retVar t
             C.Call{..} -> do
                 args <- E.liftEff #io $ mapM (const uniqueVarName) [1..length targs] 
                 let T.Func types _ = fromMaybe (error $ "undefined arguments: " ++ show args) $ typeOf !? var

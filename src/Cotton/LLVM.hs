@@ -31,6 +31,7 @@ import Data.Monoid
 import Data.Functor
 
 import qualified Cotton.KNormalize as K
+import qualified Cotton.Type.Type as T
 import qualified Cotton.Type as T
 
 data LLVM_IR 
@@ -39,42 +40,35 @@ data LLVM_IR
     deriving (Show, Eq)
 
 data Instruction 
-    = Alloca { rd   :: Ref,            type' :: T.Type }
-    | Store  { rd   :: Ref, rs  :: Reg, type' :: T.Type }
-    | Load   { rd'  :: Reg, rs' :: Ref, type' :: T.Type }
-    | Call   { label' :: Text,  type' :: T.Type, rd' :: Reg, args' :: [Reg] }
-    | Add    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
-    | Sub    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
-    | Mul    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
-    | Div    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
-    | Eqi    { rd'  :: Reg, rs  :: Reg, rt :: Reg }
+    = Alloca { rd :: Reg            }
+    | Load   { rd :: Reg, rs :: Reg }
+    | Store  { rd :: Reg, rs :: Reg }
+    | Add    { rd :: Reg, rs :: Reg, rt :: Reg }
+    | Sub    { rd :: Reg, rs :: Reg, rt :: Reg }
+    | Mul    { rd :: Reg, rs :: Reg, rt :: Reg }
+    | Div    { rd :: Reg, rs :: Reg, rt :: Reg }
+    | Eqi    { rd :: Reg, rs :: Reg, rt :: Reg }
     | CBr    { cond :: Reg, thenLabel :: Text, elseLabel :: Text }
     | Br     { label' :: Text }
-    | Ret    { label' :: Text, type' :: T.Type }
     | Label  { label' :: Text }
+    | Ret    { label' :: Text, type' :: T.Type }
+    | Call   { label' :: Text, type' :: T.Type, rd :: Reg, args' :: [Reg] }
     deriving (Show, Eq)
 
-data Ref = Ref Text T.Type
-    deriving Eq
-
-instance Show Ref where
-    show (Ref t _) = "%" ++ unpack t
-
-data Reg 
-    = I32 Int         -- 数値
-    | VBool Bool
-    | Str Text
-    | Reg Text T.Type
-    | GReg Text T.Type -- グローバル変数
-    | Null             -- 書き込み専用
+data Reg
+    = I32     Int        
+    | Boolean Bool       
+    | Str     Text       
+    | Reg     Text T.Type
+    | GReg    Text T.Type
     deriving Eq
 
 instance Show Reg where
     show (I32 n)    = show n
+    show (Boolean n) = show n
     show (Str t)    = show t
     show (Reg t _)  = "%"++unpack t
     show (GReg t _) = "@"++unpack t -- グローバル変数
-    show Null       = "null"   -- 書き込み専用
 
 data InstGeneratorBase cont
     = Emit Instruction cont
@@ -93,18 +87,21 @@ genUniqueText = F.wrap $ GenUniqueText return
 allocate :: Text -> T.Type -> InstGenerator ()
 allocate name type' = F.wrap $ Allocate name type' (return ())
 
-runInstGenerator :: InstGenerator a -> IO [Instruction]
-runInstGenerator m = (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts) 
-                <$> runInstGeneratorIter S.empty m where
+runInstGenerator :: [Text] -> InstGenerator a -> IO [Instruction]
+runInstGenerator args m = (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts) 
+                <$> runInstGeneratorIter initState m 
+    where
+    initState = foldr (\name s -> name `S.insert` s) S.empty args 
     runInstGeneratorIter :: S.Set Text -> InstGenerator a -> IO [Instruction]
     runInstGeneratorIter alreadyAllocated = \case
         (F.Free (Emit inst cont)) -> (inst :) <$> runInstGeneratorIter alreadyAllocated cont
         (F.Free (GenUniqueText cont)) -> uniqueText >>= runInstGeneratorIter alreadyAllocated . cont
         (F.Free (Allocate name type' cont)) -> let 
             alreadyAllocated' = name `S.insert` alreadyAllocated
-            allocateInst = if name `S.member` alreadyAllocated
-                then []
-                else [Alloca (Ref name type') type']
+            allocateInst = case (name `S.member` alreadyAllocated, type') of
+                (True , _) -> []
+                (False, T.Ref type'') -> [Alloca (Reg name type'')]
+                (False, _           ) -> [Alloca (Reg name type')]
             in (allocateInst++) <$> runInstGeneratorIter alreadyAllocated' cont
         (F.Pure _) -> return []
     isAlloca Alloca{..} = True
@@ -135,13 +132,17 @@ expandReturn knorms = concat <$> mapM er knorms where
 expandArg :: [K.Val] -> IO ([Reg], [Instruction])
 expandArg args = do
     newNames <- C.replicateM (length args) uniqueText
-    let (args', header) = unzip $ zipWith
-            (\arg name -> let 
-            type' = K.type' arg
-            r = Reg name type'
-            store = Store (val2Ref arg) r type'
-            alloc = Alloca (val2Ref arg) type'
-            in (r, [alloc, store])) args newNames
+    (args', header) <- unzip <$> C.forM args (\arg -> do
+        [name, name', name''] <- C.replicateM 3 uniqueText
+        let type' = K.type' arg
+        case type' of
+            T.Ref _ ->
+                return (val2Reg arg, [])
+            _       -> do
+                let r     = Reg name type'
+                    alloc = Alloca (val2Reg arg)
+                    store = Store  (val2Reg arg) r
+                return (r, [alloc, store]))
     return (args', concat header)
 
 -- | LLVM IRを生成
@@ -158,16 +159,16 @@ block2LLVM_IR = \case
     K.Fun{..}  -> do
         knorms' <- expandReturn knorms
         (args', header) <- expandArg args
-        llvmir <- runInstGenerator $ mapM kNormal2Instruction knorms'
+        llvmir <- runInstGenerator (map K.name args) $ mapM kNormal2Instruction knorms'
         return (Fun label btype args' (header++llvmir), [])
     K.Bind{..} -> do 
         knorms' <- expandReturn knorms
-        llvmir <- runInstGenerator $ mapM kNormal2Instruction knorms'
+        llvmir <- runInstGenerator [] $ mapM kNormal2Instruction knorms'
         return (Bind label btype (initVal btype), llvmir)
     where
     initVal = \case
         T.Type "I32"    -> I32 0
-        T.Type "Bool"   -> VBool False
+        T.Type "Bool"   -> Boolean False
         T.Type "String" -> Str ""
 
 kNormal2Instruction ::  K.KNormal -> InstGenerator ()
@@ -180,25 +181,53 @@ kNormal2Instruction = \case
         (K.Op fun  r1 r2 r3 _) -> genCallInst fun r1 [r2,r3]
         (K.Call r1 fun args _) -> genCallInst fun r1 args
         K.Let{..}              ->
-            case (K.name val1, isVar val2) of
+            case (K.name val1, typeOfK val1, typeOfK val2, isVar val2) of
                 -- 前処理によって"_return"はletの左辺にのみ現れる
-                ("_return", _) -> do
+                -- Ref<a>をReturnする場合のみRef<a>を返す
+                -- ret Ref<a>
+                ("_return", _, T.Ref _, True) -> do
+                    [regName, regName'] <- C.replicateM 2 genUniqueText
+                    allocate regName  (T.Ref $ typeOfK val2)
+                    emit $ Store (Reg regName (T.Ref $ typeOfK val2)) (val2Reg val2)
+                    emit $ Load  (Reg regName'        (typeOfK val2)) (Reg regName (T.Ref $ typeOfK val2))
+                    emit $ Ret regName' (typeOfK val2)
+
+                -- ret a
+                ("_return", _, _, _) -> do
                     regName <- genUniqueText
-                    emit $ load (K.Var regName (typeOf val2) Nothing) val2
-                    emit $ Ret regName (typeOf val2)
-                (_, True) -> do
+                    emit $ Load (Reg regName $ typeOfK val2) (Reg (K.name val2) (T.Ref $ typeOfK val2)) 
+                    emit $ Ret regName (typeOfK val2)
+
+                -- Ref<a>型には直接Storeする
+                -- Ref<a> <- a
+                (_, _, T.Ref _, True) -> do
                     regName <- genUniqueText
-                    allocate (K.name val1) (typeOf val1)
-                    emit $ load (K.Var regName (typeOf val2) Nothing) val2
-                    emit $ store val1 (K.Var regName (typeOf val2) Nothing)
-                (_, _) -> do
-                    allocate (K.name val1) (typeOf val1)
-                    emit $ store val1 val2
+                    allocate regName  (T.Ref $ typeOfK val2)
+                    emit $ Store (Reg regName (T.Ref $ typeOfK val2)) (val2Reg val2)
+                    emit $ Load  (Reg (K.name val1)   (typeOfK val2)) (Reg regName (T.Ref $ typeOfK val2))
+
+                -- a <- a
+                (_, _, _, True) -> do
+                    regName <- genUniqueText
+                    allocate (K.name val1) (typeOfK val1)
+                    emit $ Load (Reg regName $ typeOfK val2) (Reg (K.name val2) (T.Ref $ typeOfK val2)) 
+                    emit $ Store (val2Reg val1) (Reg regName (T.Ref $ typeOfK val2))
+                
+                -- Ref<a> <- a
+                -- Ref型には直接代入する
+                (_, T.Ref _, _, _) -> do
+                    allocate (K.name val1) (typeOfK val1)
+                    emit $ Store (val2Reg val1) (val2Reg val2)
+                
+                -- a <- a
+                (_, _, _, _) -> do
+                    allocate (K.name val1) (typeOfK val1)
+                    emit $ Store (Reg (K.name val1) (T.Ref $ typeOfK val1)) (val2Reg val2)
         (K.If condReg _ cond then' else' _) -> do
             [t,e,c, crName] <- C.replicateM 4 genUniqueText
             mapM_ kNormal2Instruction cond
-            emit $ load (K.Var crName (typeOf condReg) Nothing) condReg
-            emit $ CBr (Reg crName $ typeOf condReg) ("then_"<>t) ("else_"<>e)
+            emit $ Load (Reg crName $ typeOfK condReg) (Reg crName (T.Ref $ typeOfK condReg))
+            emit $ CBr (Reg crName $ typeOfK condReg) ("then_"<>t) ("else_"<>e)
             emit $ Label ("then_"<>t)
             mapM_ kNormal2Instruction then'
             emit $ Br ("continue_"<>c)
@@ -209,36 +238,33 @@ kNormal2Instruction = \case
         where
         isVar K.Var{} = True
         isVar _       = False
-        store rd rs = Store (val2Ref rd) (val2Reg rs) (typeOf rd)
-        load  rd rs = Load  (val2Reg rd) (val2Ref rs) (typeOf rd)
 
-        typeOf = \case
-            K.Var{..} -> type'
-            K.NullVar -> T.Bottom
-            K.Num{..} -> T.Type "I32"
-            K.Str{..} -> T.Type "String"
-
+        genCallInst :: Text -> K.Val -> [K.Val] -> InstGenerator ()
         genCallInst funName rd args = do
             regName:names <- C.replicateM (1+length args) genUniqueText
             args' <- loadVars names args
             regName <- genUniqueText
-            emit $ Call funName (typeOf rd) (Reg regName (typeOf rd)) args'
-            allocate (K.name rd) (typeOf rd)
-            emit $ store rd (K.Var regName (typeOf rd) Nothing) 
+            emit $ Call funName (typeOfK rd) (Reg regName (typeOfK rd)) args'
+            allocate (K.name rd) (T.Ref $ typeOfK rd)
+            emit $ Store (Reg (K.name rd) (T.Ref $ typeOfK rd)) (Reg regName $ (typeOfK rd)) 
 
+        genOpInst :: (Reg -> Reg -> Reg -> Instruction) -> K.Val -> K.Val -> K.Val -> InstGenerator ()
         genOpInst op r1 r2 r3 = do
             regName:names <- C.replicateM 3 genUniqueText
             [reg2, reg3] <- loadVars names [r2,r3]
-            emit $ op (Reg regName $ typeOf r1) reg2 reg3
-            allocate (K.name r1) (typeOf r1)
-            emit $ store r1 (K.Var regName (typeOf r1) Nothing)
+            emit $ op (Reg regName $ typeOfK r1) reg2 reg3
+            C.unless (isRef $ typeOfK r1) $
+                allocate (K.name r1) (T.Ref $ typeOfK r1)
+            emit $ Store (val2Reg r1) (Reg regName (T.Ref $ typeOfK r1))
 
         -- | 関数呼び出しの際に引数に変数が含まれていればそれをload
-        --   loadした変数の名前を返す
+        --   loadした変数を返す
         loadVars names args = C.forM (zip names args) (\(newName, arg) -> case arg of
+            -- Refは参照を意味するためポインタを渡す
+            (K.Var _ (T.Ref _) _) -> return $ val2Reg arg
             K.Var{} -> do
-                emit $ load (K.Var newName (typeOf arg) Nothing) (K.Var (K.name arg) (typeOf arg) Nothing)
-                return $ Reg newName (typeOf arg)
+                emit $ Load (Reg newName $ typeOfK arg) (Reg (K.name arg) (typeOfK arg))
+                return $ Reg newName (typeOfK arg)
             _ -> return $ val2Reg arg)
 
 val2Reg :: K.Val -> Reg
@@ -247,12 +273,7 @@ val2Reg = \case
     K.Num{..} -> I32 num
     K.Str{..} -> Str text
     K.NullVar -> error "NullVar"
-    
-val2Ref :: K.Val -> Ref
-val2Ref = \case
-    K.Var{..} -> Ref name type'
-    v         -> error $ "con't convert ref type: " ++ show v
-
+ 
 toText :: [LLVM_IR] -> Text
 toText = T.concat  . map block2Text
     where
@@ -272,9 +293,9 @@ toText = T.concat  . map block2Text
 
     inst2Text :: Instruction -> Text
     inst2Text = \case
-        (Alloca rd    type') -> ref2Text rd <> " = alloca "<>showT type'<>", align 4"
-        (Store  rd rs type') -> "store "<>showT type'<>" "<>reg2Text rs<>", "<>showT type'<>"* "<>ref2Text rd<>", align 4"
-        (Load   rd rs type') -> reg2Text rd <> " = load "<>showT type'<>", "<>showT type'<>"* "<>ref2Text rs<>", align 4"
+        (Alloca rd)          -> reg2Text rd <> " = alloca "<>showT (typeOf rd)<>", align 4"
+        (Store  rd rs)       -> "store "<>showT (typeOf rs)<>" "<>reg2Text rs<>", "<>showT (typeOf rd)<>" "<>reg2Text rd<>", align 4"
+        (Load   rd rs)       -> reg2Text rd <> " = load "<>showT (typeOf rd)<>", "<>showT (typeOf rs)<>" "<>reg2Text rs<>", align 4"
         (Add    rd rs rt)    -> reg2Text rd <> " = add nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
         (Sub    rd rs rt)    -> reg2Text rd <> " = sub nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
         (Mul    rd rs rt)    -> reg2Text rd <> " = mul nsw i32 "<>reg2Text rs<>", "<>reg2Text rt
@@ -286,15 +307,27 @@ toText = T.concat  . map block2Text
         (Label  label')      -> "\n"<>label'<>":"
         (Call lbl type' rd args') -> reg2Text rd<>" = call "<>showT type'<>" @"<>lbl<>
                                     "("<>T.drop 2 (T.concat $ map (\(Reg n t) -> ", "<>showT t<>" %"<>n) args')<>") "
-
-    ref2Text :: Ref -> Text
-    ref2Text (Ref t _) = "%" <> t
-
     reg2Text :: Reg -> Text
     reg2Text (I32 n)    = showT n
     reg2Text (Str t)    = showT t
     reg2Text (Reg t _)  = "%"<>t
     reg2Text (GReg t _) = "@"<>t -- グローバル変数
-    reg2Text Null       = "null"   -- 書き込み専用
 
+isRef (T.Ref _) = True
+isRef _       = False
 
+unRef (T.Ref t) = t
+
+typeOf = \case
+    (I32     _  ) -> T.Type "I32"
+    (Boolean _  ) -> T.Type "Bool"
+    (Str     _  ) -> T.Type "String"
+    (Reg     _ t) -> t
+    (GReg    _ t) -> t
+ 
+typeOfK = \case
+    (K.Var _ t _) -> t
+    K.NullVar     -> T.Bottom
+    (K.Str   _ _) -> T.Type "String"
+    (K.Num   _ _) -> T.Type "String"
+ 

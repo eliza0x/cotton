@@ -39,6 +39,7 @@ module Cotton.Closure where
 
 import qualified Cotton.Parser as P
 import qualified Cotton.Lexer as L
+import qualified Cotton.Type.Type as T
 import qualified Cotton.Type as T
 
 import Data.Text (Text(..), unpack)
@@ -144,12 +145,12 @@ closure typeEnv exprs = concatMap (W.execWriter . unnest) exprs
     unnest = \case
         (P.Bind l t exprs p) -> do
             terms <- M.catMaybes <$> mapM unnest' exprs
-            return . Just $ Bind l (T.Type t) terms p
+            return . Just $ Bind l t terms p
         (P.Fun l as t exprs p) -> do
             exprs' <- M.catMaybes <$> mapM unnest' exprs
             let impArgs = implicitArgs `implicitArgsBy` l
             let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
-            W.tell [Fun l args (T.Type t) exprs' p]
+            W.tell [Fun l args t exprs' p]
             return Nothing
         (P.ETerm term) -> error "error" -- グローバルに式が存在？
 
@@ -163,7 +164,7 @@ closure typeEnv exprs = concatMap (W.execWriter . unnest) exprs
             terms <- M.catMaybes <$> mapM unnest' exprs
             let impArgs = implicitArgs `implicitArgsBy` l
             let args = map (\n -> Arg n (typeOf n) Nothing) impArgs ++ pargsToArgs as
-            W.tell [Fun l args (T.Type t) terms p]
+            W.tell [Fun l args t terms p]
             return Nothing
         (P.ETerm term) -> Just <$> unnestTerm term
 

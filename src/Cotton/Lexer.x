@@ -43,6 +43,8 @@ tokens :-
     "else"                              { tok (\p _ -> Else       (Pos p) )       }
     "<-"                                { tok (\p _ -> LArrow     (Pos p) )       }
     "->"                                { tok (\p _ -> RArrow     (Pos p) )       }
+    "<"                                 { tok (\p _ -> LAngle     (Pos p) )       }
+    ">"                                 { tok (\p _ -> RAngle     (Pos p) )       }
     "`"                                 { tok (\p _ -> BackQuote  (Pos p) )       }
     "'"                                 { tok (\p _ -> Apostrophe (Pos p) )       }
     "("                                 { tok (\p _ -> LParen     (Pos p) )       }
@@ -75,6 +77,8 @@ data Token
     | Semicolon         TokenData
     | Colon             TokenData
     | Comma             TokenData
+    | LAngle            TokenData
+    | RAngle            TokenData
     | LParen            TokenData
     | RParen            TokenData
     | LBrace            TokenData

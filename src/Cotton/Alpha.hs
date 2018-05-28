@@ -63,7 +63,7 @@ type Alpha = State AlphaEnv
 alpha :: [P.Stmt] -> [P.Stmt]
 alpha stmts = map (\stmt -> S.evalState (alpha' "" stmt) initState) stmts
     where 
-    initState = AlphaEnv global
+    initState = AlphaEnv (M.fromList [("ref", "ref"),("unref","unref")] `M.union` global)
     -- グローバル変数、関数を環境に追加
     -- TODO: 一段目にETerm来た場合のエラー処理をする
     global = foldr (\stmt dic -> M.insert (P.label stmt) (P.label stmt) dic) M.empty stmts
