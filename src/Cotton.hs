@@ -1,8 +1,6 @@
 module Cotton where
 
-import Data.Text (Text(..))
-import qualified Data.Text as T
-import Control.Monad
+import Data.Text (Text)
 
 import Cotton.Parser
 import Cotton.Lexer
@@ -11,7 +9,6 @@ import Cotton.Closure
 import Cotton.Alpha
 import Cotton.Type
 import Cotton.LLVM
-import Cotton.Util
 
 -- | 文字列を投げ込めばいい感じにやってくれる
 compile :: String -> IO Text
@@ -47,8 +44,6 @@ compile sourceCode = do
             mapM_ print knorm
             putStrLn "\n=========="
             putStrLn "LLVM IR\n"
-            return ""
             llvmir <- knorm2llvmir knorm
-            let text = toText llvmir
-            return text
+            return $ toText llvmir
 

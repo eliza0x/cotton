@@ -22,3 +22,9 @@ instance Show Type where
     show (Func as t) = "("++drop 2 (concatMap (\a -> ", " ++ show a) as)++"): "++show t
     show (Ref a)     = show a++"*"
     show Bottom      = "_|_"
+
+unRef :: Type -> Type
+unRef (Ref t) = t
+unRef _ = error "can't ref"
+
+

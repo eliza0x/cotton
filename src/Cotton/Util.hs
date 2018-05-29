@@ -1,3 +1,13 @@
+{-|
+Module      : Cotton.Util
+Description : Utility
+Copyright   : (c) Sohei Yamaga, 2018
+License     : MIT
+Maintainer  : me@eliza.link
+Stability   : experimental
+Portability : POSIX
+-}
+
 {-# LANGUAGE TemplateHaskell, DataKinds, TypeOperators, FlexibleContexts, OverloadedLabels, OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
 
@@ -5,13 +15,12 @@ module Cotton.Util where
 
 import Data.Extensible
 import Control.Lens hiding ((:>))
-
+import Data.Monoid ((<>))
 import Data.Text (Text)
 import Cotton.Type.Type
 import Cotton.Lexer
 
 mkField "name type' pos"
-
 type Var = Record
     [ "name"  :> Text
     , "type'" :> Type
@@ -32,43 +41,56 @@ type Str = Record
 data Null = Null
     deriving (Show, Eq)
 
-mkField "var null num str"
-type Val = Variant
-    [ "var"  >: Var
-    , "num"  >: Number
-    , "str"  >: Str
-    , "null" >: Null
+mkField "globalReg reg int str bool null"
+type Reg = Variant
+    [ "globalReg" >: Var
+    , "reg"       >: Var
+    , "int"       >: Number
+    , "str"       >: Str
+    , "bool"      >: Bool
+    , "null"      >: Null
     ]
 
-valType :: Val -> Type
-valType = matchField
-    $ #var  @= (\r -> r ^. #type')
-   <: #num  @= (\_ -> Type "I32")
-   <: #str  @= (\_ -> Type "String")
-   <: #null @= const Bottom
-   <: nil
-
-valName :: Val -> Text
-valName = matchField
-    $ #var  @= (\r -> r ^. #name)
-   <: #num  @= error "error num"
-   <: #str  @= error "error str"
-   <: #null @= error "error null"
-   <: nil
-
-isVar :: Val -> Bool
+isVar :: Reg -> Bool
 isVar = matchField
-    $ #var  @= const True
-   <: #num  @= const False
-   <: #str  @= const False
-   <: #null @= const False
+    $ #globalReg @= const True
+   <: #reg       @= const True
+   <: #int       @= const False
+   <: #str       @= const False
+   <: #bool      @= const False
+   <: #null      @= const False
    <: nil
 
-isNull :: Val -> Bool
+isNull :: Reg -> Bool
 isNull = matchField
-    $ #var  @= const False
-   <: #num  @= const False
-   <: #str  @= const False
-   <: #null @= const True
+    $ #globalReg @= const False
+   <: #reg       @= const False
+   <: #int       @= const False
+   <: #str       @= const False
+   <: #bool      @= const False
+   <: #null      @= const True
    <: nil
+
+nameOf :: Reg -> Text
+nameOf = matchField
+          $ #globalReg @= (\r -> "@" <> r ^. #name)
+         <: #reg       @= (\r -> "%" <> r ^. #name)
+         <: #int       @= error "int"
+         <: #str       @= error "str"
+         <: #bool      @= error "bool"
+         <: #null      @= error "null"
+         <: nil
+
+typeOf :: Reg -> Type
+typeOf = matchField
+          $ #globalReg @= (\r -> r ^. #type')
+         <: #reg       @= (\r -> r ^. #type')
+         <: #int       @= const (Type "I32")
+         <: #str       @= const (Type "String")
+         <: #bool      @= const (Type "Bool")
+         <: #null      @= error "null"
+         <: nil
+
+addIndent :: String -> String
+addIndent = unlines . map ("\t"++) . lines
 
