@@ -1,0 +1,13 @@
+def main(): I32 {
+    def a: Ref<I32> = ref(1);
+    def n: Ref<I32> = ref(5);
+    def fact(): I32 {
+        if unref(n) == 0 {
+            unref(a)
+        } else {
+            a <- unref(n) * unref(a);
+            fact()
+        }
+    }
+    fact()
+}

@@ -55,6 +55,7 @@ data Instruction
     | Label  { label' :: Text }
     | Ret    { label' :: Text, type' :: T.Type }
     | Call   { label' :: Text, type' :: T.Type, rd :: Reg, args' :: [Reg] }
+    | Call'  { label' :: Text, type' :: T.Type,            args' :: [Reg] }
     deriving (Show, Eq)
 
 data Reg
@@ -90,9 +91,12 @@ allocate :: Text -> T.Type -> InstGenerator ()
 allocate name type' = F.wrap $ Allocate name type' (return ())
 
 runInstGenerator :: [Text] -> InstGenerator a -> IO [Instruction]
-runInstGenerator args m = -- (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts) <$>
-                runInstGeneratorIter initState m 
+runInstGenerator args m = appendRetVoid . (\insts -> filter isAlloca insts ++ filter (not . isAlloca) insts)
+                    <$> runInstGeneratorIter initState m 
     where
+    appendRetVoid insts = if isRet $ last insts then insts else insts ++ [Ret "" $ T.Type "Unit"]
+    isRet (Ret _ _) = True
+    isRet _         = False
     initState = foldr (\name s -> name `S.insert` s) S.empty args 
     runInstGeneratorIter :: S.Set Text -> InstGenerator a -> IO [Instruction]
     runInstGeneratorIter alreadyAllocated = \case
@@ -102,7 +106,6 @@ runInstGenerator args m = -- (\insts -> filter isAlloca insts ++ filter (not . i
             alreadyAllocated' = name `S.insert` alreadyAllocated
             allocateInst = case (name `S.member` alreadyAllocated, type') of
                 (True , _) -> []
-                -- (False, T.Ref type'') -> [Alloca (Reg name type'')]
                 (False, _           ) -> [Alloca (Reg name type')]
             in (allocateInst++) <$> runInstGeneratorIter alreadyAllocated' cont
         (F.Pure _) -> return []
@@ -180,6 +183,7 @@ kNormal2Instruction = \case
         (K.Op "/"  r1 r2 r3 _) -> emit (Label "; div" ) >> genOpInst Div r1 r2 r3
         (K.Op "==" r1 r2 r3 _) -> emit (Label "; eqi" ) >> genOpInst Eqi r1 r2 r3
         (K.Op fun  r1 r2 r3 _) -> emit (Label "; fun" ) >> genCallInst fun r1 [r2,r3]
+        (K.Call K.NullVar fun args _) -> emit (Label "; call'") >> genCall'Inst fun args
         (K.Call r1 fun args _) -> emit (Label "; call") >> genCallInst fun r1 args
         (K.UnRef   r1 r2 _)    -> do
             emit $ Label "; 1"
@@ -246,6 +250,13 @@ kNormal2Instruction = \case
             allocate (K.name rd) (typeOfK rd)
             emit $ Store (Reg (K.name rd) (T.Ref $ typeOfK rd)) (Reg regName (typeOfK rd)) 
 
+        genCall'Inst :: Text -> [K.Val] -> InstGenerator ()
+        genCall'Inst funName args = do
+            regName:names <- C.replicateM (1+length args) genUniqueText
+            args' <- loadVars names args
+            regName <- genUniqueText
+            emit $ Call' funName (T.Type "Unit") args'
+
         genOpInst :: (Reg -> Reg -> Reg -> Instruction) -> K.Val -> K.Val -> K.Val -> InstGenerator ()
         genOpInst op r1 r2 r3 = do
             regName:names <- C.replicateM 3 genUniqueText
@@ -300,10 +311,14 @@ toText = T.concat  . map block2Text
         (Eqi    rd rs rt)    -> reg2Text rd <> " = icmp eq i32 "<>reg2Text rs<>", "<>reg2Text rt
         (CBr cond t e)       -> "br i1 "<>reg2Text cond<>", label %"<>t<>", label %"<>e
         (Br     label')      -> "br label %"<>label'
-        (Ret    label' t)    -> "ret "<>showT t<>(if t == T.Type "Unit" then "" else " %"<>label')
         (Label  label')      -> "\n"<>label'<>":"
-        (Call lbl type' rd args') -> reg2Text rd<>" = call "<>showT type'<>" @"<>lbl<>
-                                    "("<>T.drop 2 (T.concat $ map (\(Reg n t) -> ", "<>showT t<>" %"<>n) args')<>") "
+        (Call lbl type' rd args')  -> reg2Text rd<>" = call "<>showT type'<>" @"<>lbl<>
+                                     "("<>T.drop 2 (T.concat $ map (\(Reg n t) -> ", "<>showT t<>" %"<>n) args')<>") "
+        (Call' lbl type' args') -> "call "<>showT type'<>" @"<>lbl<>
+                                   "("<>T.drop 2 (T.concat $ map (\(Reg n t) -> ", "<>showT t<>" %"<>n) args')<>") "
+        (Ret    label' (T.Type "Unit")) -> "ret void"
+        (Ret    label' t)    -> "ret "<>showT t<>(if t == T.Type "Unit" then "" else " %"<>label')
+
     reg2Text :: Reg -> Text
     reg2Text (I32 n)    = showT n
     reg2Text (Str t)    = showT t
