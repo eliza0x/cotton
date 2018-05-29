@@ -99,14 +99,14 @@ alpha stmts = map (\stmt -> S.evalState (alpha' "" stmt) initState) stmts
     -- 変数名を書き換え後の物で置き換える
     alphaTerm :: Text -> P.Term -> Alpha P.Term
     alphaTerm prefix = \case
-        (P.Var var pos)              -> P.Var <$> findDict var <*> pure pos
-        (P.Overwrite var term pos)   -> P.Overwrite <$> findDict var <*> alphaTerm prefix term <*> pure pos
-        (P.Op op term term' pos)     -> P.Op op <$> alphaTerm prefix term <*> alphaTerm prefix term'  <*> pure pos
-        (P.Call var args pos)        -> P.Call <$> findDict var <*> mapM (alphaTerm prefix) args <*> pure pos
-        (P.SemiColon term term' pos) -> P.SemiColon <$> alphaTerm prefix term <*> alphaTerm prefix term' <*> pure pos
-        (P.If cond stmts stmts' pos) -> P.If <$> alphaTerm prefix cond 
-                                             <*> mapM (alpha' prefix) stmts 
-                                             <*> mapM (alpha' prefix) stmts' <*> pure pos
+        (P.Var var pos)                    -> P.Var <$> findDict var <*> pure pos
+        (P.Overwrite var term pos)         -> P.Overwrite <$> findDict var <*> alphaTerm prefix term <*> pure pos
+        (P.Op op term term' pos)           -> P.Op op <$> alphaTerm prefix term <*> alphaTerm prefix term'  <*> pure pos
+        (P.Call var args pos)              -> P.Call <$> findDict var <*> mapM (alphaTerm prefix) args <*> pure pos
+        (P.SemiColon term term' type' pos) -> P.SemiColon <$> alphaTerm prefix term <*> alphaTerm prefix term' <*> pure type' <*> pure pos
+        (P.If cond stmts stmts' pos)       -> P.If <$> alphaTerm prefix cond 
+                                                   <*> mapM (alpha' prefix) stmts 
+                                                   <*> mapM (alpha' prefix) stmts' <*> pure pos
         t -> return t
         where
         findDict key = do

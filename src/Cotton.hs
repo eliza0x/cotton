@@ -11,6 +11,7 @@ import Cotton.Closure
 import Cotton.Alpha
 import Cotton.Type
 import Cotton.LLVM
+import Cotton.Util
 
 -- | 文字列を投げ込めばいい感じにやってくれる
 compile :: String -> IO Text

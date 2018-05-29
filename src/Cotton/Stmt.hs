@@ -13,14 +13,14 @@ data Stmt =
 
 -- | 式
 data Term
-    = TInt      { num  :: Int,  tpos   :: CL.AlexPosn } -- 整数
-    | Var       { var  :: Text, tpos   :: CL.AlexPosn } -- 名前
-    | TStr      { text :: Text, tpos   :: CL.AlexPosn } -- 名前
-    | Overwrite { var  :: Text, term   :: Term,   tpos    :: CL.AlexPosn }                 -- 変数上書き
-    | Op        { op   :: Text, term   :: Term,   term'   :: Term, tpos :: CL.AlexPosn }   -- 演算子
-    | Call      { var  :: Text, targs  :: [Term], tpos    :: CL.AlexPosn }                 -- Call
-    | SemiColon { term :: Term, term'  :: Term,   tpos    :: CL.AlexPosn }                 -- 連結
-    | If        { cond :: Term, tstmts :: [Stmt], tstmts' :: [Stmt], tpos :: CL.AlexPosn } -- if式
+    = TInt      { num  :: Int,                                         tpos :: CL.AlexPosn } -- 整数
+    | Var       { var  :: Text,                                        tpos :: CL.AlexPosn } -- 名前
+    | TStr      { text :: Text,                                        tpos :: CL.AlexPosn } -- 名前
+    | Overwrite { var  :: Text, term   :: Term,                        tpos :: CL.AlexPosn } -- 変数上書き
+    | Op        { op   :: Text, term   :: Term,   term'   :: Term,     tpos :: CL.AlexPosn } -- 演算子
+    | Call      { var  :: Text, targs  :: [Term],                      tpos :: CL.AlexPosn } -- Call
+    | SemiColon { term :: Term, term'  :: Term, type''' :: Maybe Type, tpos :: CL.AlexPosn } -- 連結
+    | If        { cond :: Term, tstmts :: [Stmt], tstmts' :: [Stmt],   tpos :: CL.AlexPosn } -- if式
     deriving Eq
 
 data Arg = Arg { argName :: Text, type'' :: Maybe Type, apos :: CL.AlexPosn }
@@ -28,16 +28,16 @@ data Arg = Arg { argName :: Text, type'' :: Maybe Type, apos :: CL.AlexPosn }
 
 
 instance Show Term where
-    show (TInt n _)         = show n
-    show (Var l  _)         = unpack l
-    show (TStr t _)         = unpack t
-    show (Op op t t' _)     = show t ++ " " ++ unpack op ++ " " ++ show t'
-    show (Call l  as _)     = unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
-    show (TInt n _)         = show n
-    show (SemiColon t t' _) = show t ++ ";\n" ++ show t'
-    show (If c e e' _)      = "if " ++ show c ++ " {\n" ++ (addIndent . unlines $ map show e) 
-                            ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
-    show (Overwrite l t _)  = unpack l ++ " <- " ++ show t
+    show (TInt n _)           = show n
+    show (Var l  _)           = unpack l
+    show (TStr t _)           = unpack t
+    show (Op op t t' _)       = show t ++ " " ++ unpack op ++ " " ++ show t'
+    show (Call l  as _)       = unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
+    show (TInt n _)           = show n
+    show (SemiColon t t' _ _) = show t ++ ";\n" ++ show t'
+    show (If c e e' _)        = "if " ++ show c ++ " {\n" ++ (addIndent . unlines $ map show e) 
+                              ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
+    show (Overwrite l t _)    = unpack l ++ " <- " ++ show t
 
 instance Show Stmt where
     show (ETerm t)          = show t
