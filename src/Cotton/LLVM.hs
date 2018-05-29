@@ -100,7 +100,7 @@ runInstGenerator args m = appendRetVoid . (\insts -> filter isAlloca insts ++ fi
     appendRetVoid insts = if isRet $ last insts then insts else insts ++ [Ret "" $ T.Type "Unit"]
     isRet (Ret _ _) = True
     isRet _         = False
-    initState = foldr (\name s -> name `S.insert` s) S.empty args 
+    initState = foldr S.insert S.empty args 
     runInstGeneratorIter :: S.Set Text -> InstGenerator a -> IO [Instruction]
     runInstGeneratorIter alreadyAllocated = \case
         (F.Free (Emit inst cont)) -> (inst :) <$> runInstGeneratorIter alreadyAllocated cont
@@ -190,9 +190,7 @@ kNormal2Instruction = \case
         (K.Op "/"  r1 r2 r3 _) -> emit (Label "; div" ) >> genOpInst Div r1 r2 r3
         (K.Op "==" r1 r2 r3 _) -> emit (Label "; eqi" ) >> genOpInst Eqi r1 r2 r3
         (K.Op fun  r1 r2 r3 _) -> emit (Label "; fun" ) >> genCallInst fun r1 [r2,r3]
-        (K.Call rd fun args _) -> if isNull rd
-            then emit (Label "; call'") >> genCall'Inst fun args
-            else emit (Label "; call")  >> genCallInst fun rd args
+        (K.Call rd fun args _) -> emit (Label "; call") >> genCallInst fun rd args
         (K.UnRef   r1 r2 _)    -> do
             emit $ Label "; 1"
             regName <- genUniqueText
@@ -251,16 +249,12 @@ genCallInst funName rd args = do
     regName:names <- C.replicateM (1+length args) genUniqueText
     args' <- loadVars names args
     regName <- genUniqueText
-    emit $ Call funName (valType rd) (Reg regName (valType rd)) args'
-    allocate (valName rd) (valType rd)
-    emit $ Store (Reg (valName rd) (T.Ref $ valType rd)) (Reg regName (valType rd)) 
-
-genCall'Inst :: Text -> [Val] -> InstGenerator ()
-genCall'Inst funName args = do
-    regName:names <- C.replicateM (1+length args) genUniqueText
-    args' <- loadVars names args
-    regName <- genUniqueText
-    emit $ Call' funName (T.Type "Unit") args'
+    if isNull rd
+        then emit $ Call' funName (T.Type "Unit") args'
+        else do
+        emit $ Call funName (valType rd) (Reg regName (valType rd)) args'
+        allocate (valName rd) (valType rd)
+        emit $ Store (Reg (valName rd) (T.Ref $ valType rd)) (Reg regName (valType rd)) 
 
 genOpInst :: (Reg -> Reg -> Reg -> Instruction) -> Val -> Val -> Val -> InstGenerator ()
 genOpInst op r1 r2 r3 = do
