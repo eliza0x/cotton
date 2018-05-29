@@ -41,15 +41,21 @@ type Str = Record
 data Null = Null
     deriving (Show, Eq)
 
-mkField "globalReg reg int str bool null"
-type Reg = Variant
-    [ "globalReg" >: Var
-    , "reg"       >: Var
-    , "int"       >: Number
-    , "str"       >: Str
-    , "bool"      >: Bool
-    , "null"      >: Null
+type RegField = 
+    '[ "globalReg" >: Var 
+    ] ++ ValField
+
+type ValField =
+    '[ "reg"       >: Var
+    ,  "int"       >: Number
+    ,  "str"       >: Str
+    ,  "bool"      >: Bool
+    ,  "null"      >: Null
     ]
+
+
+mkField "globalReg reg int str bool null"
+type Reg = Variant (RegField)
 
 isVar :: Reg -> Bool
 isVar = matchField
