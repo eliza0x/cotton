@@ -11,7 +11,7 @@ K正規化された式からLLVM IRを生成します。
 
 -}
 
-{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, OverloadedLabels, FlexibleContexts, DeriveFunctor #-}
+{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, OverloadedLabels, FlexibleContexts, DeriveFunctor, ScopedTypeVariables #-}
 
 module Cotton.LLVM where
 
@@ -104,27 +104,28 @@ expandReturn knorms = concat <$> mapM er knorms where
     er knorm = do
         n <- uniqueText
         case knorm of
-            (K.Op op     r1 r2 r3 p)  -> return $ genTerm knorm (\r->[K.Op op (#reg#(r&name.~n)) r2 r3 p  , genLet n (r^.Cotton.Util.type')]) r1
-            (K.Call      r1 f args p) -> return $ genTerm knorm (\r->[K.Call  (#reg#(r&name.~n)) f args p , genLet n $ r^.Cotton.Util.type']) r1
-            (K.Let       r1 r2 p)     -> return $ genTerm knorm (\r->[K.Let   (#reg#(r&name.~n)) r2 p     , genLet n $ r^.Cotton.Util.type']) r1
-            (K.Ref       r1 r2 p)     -> return $ genTerm knorm (\r->[K.Ref   (#reg#(r&name.~n)) r2 p     , genLet n $ r^.Cotton.Util.type']) r1
-            (K.UnRef     r1 r2 p)     -> return $ genTerm knorm (\r->[K.UnRef (#reg#(r&name.~n)) r2 p     , genLet n $ r^.Cotton.Util.type']) r1
-            (K.Overwrite r1 rs p)     -> return $ genTerm knorm (\r->[K.Overwrite (#reg#(r&name.~n)) rs p , genLet n $ r^.Cotton.Util.type']) r1
+            (K.Op op     r1 r2 r3  p) -> return $ genTerm (\r -> [K.Op op     (#var#(r & #name.~n)) r2 r3  p, genLet n $ r ^. #type]) r1
+            (K.Call      r1 f args p) -> return $ genTerm (\r -> [K.Call      (#var#(r & #name.~n)) f args p, genLet n $ r ^. #type]) r1
+            (K.Let       r1 r2     p) -> return $ genTerm (\r -> [K.Let       (#var#(r & #name.~n)) r2     p, genLet n $ r ^. #type]) r1
+            (K.Ref       r1 r2     p) -> return $ genTerm (\r -> [K.Ref       (#var#(r & #name.~n)) r2     p, genLet n $ r ^. #type]) r1
+            (K.UnRef     r1 r2     p) -> return $ genTerm (\r -> [K.UnRef     (#var#(r & #name.~n)) r2     p, genLet n $ r ^. #type]) r1
+            (K.Overwrite r1 rs     p) -> return $ genTerm (\r -> [K.Overwrite (#var#(r & #name.~n)) rs     p, genLet n $ r ^. #type]) r1
             (K.If   r1 cr cs ts es p) -> do
                 cs' <- expandReturn cs
                 ts' <- expandReturn ts
                 es' <- expandReturn es
-                return $ genTerm knorm (\r -> [K.If (#reg#(r&name.~n)) cr cs' ts' es' p, genLet n $ r^.Cotton.Util.type']) r1
-    genTerm t f = matchField
-            $ #globalReg @= const [t]
-           <: #reg       @= f
-           <: #int       @= const [t]
-           <: #str       @= const [t]
-           <: #bool      @= const [t]
-           <: #null      @= const [t]
-           <: nil
-    genLet n t = K.Let (#reg # (#name @= "_return" <: #type' @= t <: #pos @= Nothing <: nil))
-                       (#reg # (#name @= n         <: #type' @= t <: #pos @= Nothing <: nil)) Nothing
+                return $ genTerm (\r -> [K.If (#var#(r & #name.~n)) cr cs' ts' es' p, genLet n $ r ^. #type]) r1
+        where
+        genTerm :: (Var -> [K.KNormal]) -> Val -> [K.KNormal]
+        genTerm f = matchField
+                $ #var  @= (f :: Var -> [K.KNormal])
+               <: #int  @= const [knorm]
+               <: #str  @= const [knorm]
+               <: #bool @= const [knorm]
+               <: #null @= const [knorm]
+               <: nil
+        genLet n t = K.Let (#var # (#name @= "_return" <: #type @= t <: #pos @= Nothing <: nil))
+                           (#var # (#name @= n         <: #type @= t <: #pos @= Nothing <: nil)) Nothing
 
 -- | LLVMでは引数が参照ではなく値であるためこれを変換するIRと、新しい引数の変数名を生成する
 expandArg :: [Reg] -> IO ([Reg], [Instruction])
@@ -150,7 +151,7 @@ block2LLVM_IR :: K.Block -> IO (LLVM_IR, [Instruction])
 block2LLVM_IR = \case
     K.Fun{..}  -> do
         knorms' <- expandReturn knorms
-        (args', header) <- expandArg args
+        (args', header) <- expandArg $ map val2Reg args
         llvmir <- runInstGenerator (map nameOf args) $ mapM kNormal2Instruction knorms'
         return (Fun label btype args' (header++llvmir), [])
     K.Bind{..} -> do 
@@ -167,13 +168,13 @@ block2LLVM_IR = \case
 
 kNormal2Instruction ::  K.KNormal -> InstGenerator ()
 kNormal2Instruction = \case
-        (K.Op "+"  r1 r2 r3 _) -> emit (Label "; add" ) >> genOpInst Add r1 r2 r3
-        (K.Op "-"  r1 r2 r3 _) -> emit (Label "; sub" ) >> genOpInst Sub r1 r2 r3
-        (K.Op "*"  r1 r2 r3 _) -> emit (Label "; mul" ) >> genOpInst Mul r1 r2 r3
-        (K.Op "/"  r1 r2 r3 _) -> emit (Label "; div" ) >> genOpInst Div r1 r2 r3
-        (K.Op "==" r1 r2 r3 _) -> emit (Label "; eqi" ) >> genOpInst Eqi r1 r2 r3
-        (K.Op fun  r1 r2 r3 _) -> emit (Label "; fun" ) >> genCallInst fun r1 [r2,r3]
-        (K.Call rd fun args _) -> emit (Label "; call") >> genCallInst fun rd args
+        (K.Op "+"  rd rs rt _) -> emit (Label "; add" ) >> genOpInst   Add (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "-"  rd rs rt _) -> emit (Label "; sub" ) >> genOpInst   Sub (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "*"  rd rs rt _) -> emit (Label "; mul" ) >> genOpInst   Mul (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "/"  rd rs rt _) -> emit (Label "; div" ) >> genOpInst   Div (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "==" rd rs rt _) -> emit (Label "; eqi" ) >> genOpInst   Eqi (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op fun  rd rs rt _) -> emit (Label "; fun" ) >> genCallInst fun (val2Reg rd) [val2Reg rs, val2Reg rt]
+        (K.Call rd fun args _) -> emit (Label "; call") >> genCallInst fun (val2Reg rd) (map val2Reg args)
         (K.UnRef   r1 r2 _)    -> do
             emit $ Label "; 1"
             emit $ Load  (genReg (nameOf r1) (T.Ref $ typeOf r1)) (genReg (nameOf r2) (T.Ref $ typeOf r2))
@@ -184,6 +185,7 @@ kNormal2Instruction = \case
             emit $ Store (genReg (nameOf r1) (T.Ref $ typeOf r1)) (genReg (nameOf r2) (T.Ref $ typeOf r2))
 
         (K.Overwrite rd rs _)  -> do
+            emit $ Label "; over"
             [rd', rs'] <- C.replicateM 2 genUniqueText
             emit $ Load  (genReg rd' $ typeOf rd) (genReg (nameOf rd) (T.Ref $ typeOf rd)) 
             emit $ Load  (genReg rs' $ typeOf rs) (genReg (nameOf rs) (T.Ref $ typeOf rs)) 
@@ -210,9 +212,10 @@ kNormal2Instruction = \case
                 (_, _) -> do
                     emit $ Label "; 5"
                     allocate (nameOf val1) (typeOf val1)
-                    emit $ Store (genReg (nameOf val1) (T.Ref $ typeOf val1)) val2
+                    emit $ Store (genReg (nameOf val1) (T.Ref $ typeOf val1)) (val2Reg val2)
 
         (K.If condReg _ cond then' else' _) -> do
+            emit $ Label "; if"
             [t,e,c, crName] <- C.replicateM 4 genUniqueText
             mapM_ kNormal2Instruction cond
             emit $ Load (genReg crName $ typeOf condReg) (genReg crName (T.Ref $ typeOf condReg))
@@ -268,7 +271,7 @@ toText = T.concat  . map block2Text
     block2Text (Bind l t v)    = "@"<>l<>" = global "<>showT t<>" "<>nameOf v<>" align 4\n"
     block2Text (Fun l t as is) = 
         "define "<>showT t<>" @"<>l<>
-        "("<>T.drop 2 (T.concat (map (\r -> ", "<>showT (typeOf r)<>" %"<>(nameOf r)) as))<>") "<> 
+        "("<>T.drop 2 (T.concat (map (\r -> ", "<>showT (typeOf r)<>" %"<>nameOf r) as))<>") "<> 
         " {\n"<> T.concat (map (\i -> indent i <> inst2Text i <>"\n") is) <> 
         "}\n"
         where    
@@ -277,29 +280,28 @@ toText = T.concat  . map block2Text
 
     inst2Text :: Instruction -> Text
     inst2Text = \case
-        (Alloca rd)          -> nameOf rd <> " = alloca "<>showT (typeOf rd)<>", align 4"
-        (Store  rd rs)       -> "store "<>showT (typeOf rs)<>" "<>nameOf rs<>", "<>showT (typeOf rd)<>" "<>nameOf rd<>", align 4"
-        (Load   rd rs)       -> nameOf rd <> " = load "<>showT (typeOf rd)<>", "<>showT (typeOf rs)<>" "<>nameOf rs<>", align 4"
-        (Add    rd rs rt)    -> nameOf rd <> " = add nsw i32 "<>nameOf rs<>", "<>nameOf rt
-        (Sub    rd rs rt)    -> nameOf rd <> " = sub nsw i32 "<>nameOf rs<>", "<>nameOf rt
-        (Mul    rd rs rt)    -> nameOf rd <> " = mul nsw i32 "<>nameOf rs<>", "<>nameOf rt
-        (Div    rd rs rt)    -> nameOf rd <> " = div nsw i32 "<>nameOf rs<>", "<>nameOf rt
-        (Eqi    rd rs rt)    -> nameOf rd <> " = icmp eq i32 "<>nameOf rs<>", "<>nameOf rt
-        (CBr cond t e)       -> "br i1 "<>nameOf cond<>", label %"<>t<>", label %"<>e
+        (Alloca rd)          -> showBase rd <> " = alloca "<>showT (typeOf rd)<>", align 4"
+        (Store  rd rs)       -> "store "<>showT (typeOf rs)<>" "<>showBase rs<>", "<>showT (typeOf rd)<>" "<>showBase rd<>", align 4"
+        (Load   rd rs)       -> showBase rd <> " = load "<>showT (typeOf rd)<>", "<>showT (typeOf rs)<>" "<>showBase rs<>", align 4"
+        (Add    rd rs rt)    -> showBase rd <> " = add nsw i32 "<>showBase rs<>", "<>showBase rt
+        (Sub    rd rs rt)    -> showBase rd <> " = sub nsw i32 "<>showBase rs<>", "<>showBase rt
+        (Mul    rd rs rt)    -> showBase rd <> " = mul nsw i32 "<>showBase rs<>", "<>showBase rt
+        (Div    rd rs rt)    -> showBase rd <> " = div nsw i32 "<>showBase rs<>", "<>showBase rt
+        (Eqi    rd rs rt)    -> showBase rd <> " = icmp eq i32 "<>showBase rs<>", "<>showBase rt
+        (CBr cond t e)       -> "br i1 "<>showBase cond<>", label %"<>t<>", label %"<>e
         (Br     label')      -> "br label %"<>label'
         (Label  label')      -> "\n"<>label'<>":"
-        (Call lbl t rd args')  -> nameOf rd<>" = call "<>showT t<>" @"<>lbl<>
-                                     "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" %"<>nameOf r) args')<>") "
+        (Call lbl t rd args')  -> showBase rd<>" = call "<>showT t<>" @"<>lbl<>
+                                     "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" %"<>showBase r) args')<>") "
         (Call' lbl t args') -> "call "<>showT t<>" @"<>lbl<>
-                                   "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" %"<>nameOf r) args')<>") "
+                                   "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" %"<>showBase r) args')<>") "
         (Ret _ (T.Type "Unit")) -> "ret void"
         (Ret    label' t)    -> "ret "<>showT t<>(if t == T.Type "Unit" then "" else " %"<>label')
 
-
 genReg :: Text -> T.Type -> Reg
 genReg n t = #reg #
-    ( #name  @= n
-   <: #type' @= t
-   <: #pos   @= Nothing
+    ( #name @= n
+   <: #type @= t
+   <: #pos  @= Nothing
    <: nil)
 

@@ -52,18 +52,18 @@ import qualified Text.StringRandom as R
 import Control.Monad
 
 data Block
-    = Fun  { label :: Text, args :: [Reg], btype :: T.Type, knorms :: [KNormal], bpos :: Maybe L.AlexPosn }
+    = Fun  { label :: Text, args :: [Val], btype :: T.Type, knorms :: [KNormal], bpos :: Maybe L.AlexPosn }
     | Bind { label :: Text,                btype :: T.Type, knorms :: [KNormal], bpos :: Maybe L.AlexPosn }
     deriving  Eq
 
 data KNormal
-    = Let       {              val1 :: Reg, val2 :: Reg,              pos :: Maybe L.AlexPosn }
-    | Overwrite {              val1 :: Reg, val2 :: Reg,              pos :: Maybe L.AlexPosn }
-    | UnRef     {              val1 :: Reg, val2 :: Reg,              pos :: Maybe L.AlexPosn }
-    | Ref       {              val1 :: Reg, val2 :: Reg,              pos :: Maybe L.AlexPosn }
-    | Op        { op :: Text,  val1 :: Reg, val2 :: Reg, val3 :: Reg, pos :: Maybe L.AlexPosn }
-    | Call      { var1 :: Reg, fun :: Text, args' :: [Reg]          , pos :: Maybe L.AlexPosn }
-    | If        { condVar :: Reg, retVar :: Reg, cond :: [KNormal], then' :: [KNormal], else' :: [KNormal], pos :: Maybe L.AlexPosn }
+    = Let       {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | Overwrite {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | UnRef     {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | Ref       {              val1 :: Val, val2 :: Val,              pos :: Maybe L.AlexPosn }
+    | Op        { op :: Text,  val1 :: Val, val2 :: Val, val3 :: Val, pos :: Maybe L.AlexPosn }
+    | Call      { var1 :: Val, fun :: Text, args' :: [Val]          , pos :: Maybe L.AlexPosn }
+    | If        { condVar :: Val, retVar :: Val, cond :: [KNormal], then' :: [KNormal], else' :: [KNormal], pos :: Maybe L.AlexPosn }
     deriving Eq
 
 type KNormalize = Eff '[ "knorm" >: E.WriterEff [KNormal]
@@ -74,14 +74,14 @@ type KNormalize = Eff '[ "knorm" >: E.WriterEff [KNormal]
 knormalize :: T.Env -> [Stmt] -> IO [Block]
 knormalize typeEnv = mapM knormalize'
     where
-    genVar :: Text -> T.Type -> Maybe L.AlexPosn -> Reg
-    genVar n t p = #reg # (#name @= n <: #type' @= t <: #pos @= p <: nil)
-    genNum :: Int -> Maybe L.AlexPosn -> Reg
+    genVar :: Text -> T.Type -> Maybe L.AlexPosn -> Val
+    genVar n t p = #var # (#name @= n <: #type @= t <: #pos @= p <: nil)
+    genNum :: Int -> Maybe L.AlexPosn -> Val
     genNum n p   = #int # (#value @= n <:               #pos @= p <: nil)
-    genStr :: Text -> Maybe L.AlexPosn -> Reg
+    genStr :: Text -> Maybe L.AlexPosn -> Val
     genStr t p   = #str # (#text @= t                <: #pos @= p <: nil)
     genReturnVar retType = genVar "_return" retType Nothing
-    nullType :: Reg
+    nullType :: Val
     nullType = #null # Null
     runKnormalize :: KNormalize a -> IO [KNormal]
     runKnormalize = E.retractEff
@@ -91,17 +91,17 @@ knormalize typeEnv = mapM knormalize'
     knormalize' :: Stmt -> IO Block
     knormalize' = \case
         (C.Fun label args type' terms pos) -> 
-            Fun label (map (#reg #) args) type' <$> knormalizeTerm (genReturnVar type') terms <*> pure (Just pos)
+            Fun label (map (#var #) args) type' <$> knormalizeTerm (genReturnVar type') terms <*> pure (Just pos)
         (C.Bind label type' terms pos)     -> 
             Bind label type'               <$> knormalizeTerm (genReturnVar type') terms <*> pure (Just pos)
 
-    knormalizeTerm :: Reg -> [C.Term] -> IO [KNormal]
-    knormalizeTerm retReg terms = 
-        concat <$> mapM (runKnormalize . knormalizeTerm' retReg) terms
+    knormalizeTerm :: Val -> [C.Term] -> IO [KNormal]
+    knormalizeTerm retVal terms = 
+        concat <$> mapM (runKnormalize . knormalizeTerm' retVal) terms
         where
         typeFromEnv n = T._typeOf typeEnv !? n
 
-        knormalizeTerm' :: Reg -> C.Term -> KNormalize ()
+        knormalizeTerm' :: Val -> C.Term -> KNormalize ()
         knormalizeTerm' retVar = \case
             C.TBind{..} -> knormalizeTerm' (genVar label type' (Just pos)) term 
             C.If{..} -> do
@@ -163,17 +163,18 @@ knormalize typeEnv = mapM knormalize'
             uniqueVarName = R.stringRandomIO "[a-zA-Z][a-zA-Z0-9_]{7}"
 
 instance Show KNormal where
-    show (Let v v' _p)       = show v  ++ " = " ++ show v'
-    show (Overwrite v v' _p) = show v  ++ " <- " ++ show v'
-    show (UnRef v v' _p)     = show v  ++ " = unref(" ++ show v' ++ ")"
-    show (Ref v v' _p)       = show v  ++ " = ref(" ++ show v' ++ ")"
-    show (Op op v1 v2 v3 _)  = show v1 ++ " = " ++ show v2  ++ " " ++ unpack op ++ " " ++ show v3
-    show (Call v1 l as _)    = show v1 ++ " = " ++ unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
+    show (Let v v' _p)       = unpack (showBase v ) ++ " = " ++  unpack (showBase v')
+    show (Overwrite v v' _p) = unpack (showBase v ) ++ " <- " ++ unpack (showBase v')
+    show (UnRef v v' _p)     = unpack (showBase v ) ++ " = unref(" ++ unpack (showBase v') ++ ")"
+    show (Ref v v' _p)       = unpack (showBase v ) ++ " = ref(" ++ unpack (showBase v') ++ ")"
+    show (Op op v1 v2 v3 _)  = unpack (showBase v1) ++ " = " ++ unpack (showBase v2)  ++ " " ++ unpack op ++ " " ++ unpack (showBase v3)
+    show (Call v1 l as _)    = unpack (showBase v1) ++ " = " ++ unpack l ++ 
+                                                       "(" ++ (drop 2 . concat $ map (\a -> ", " ++ unpack (showBase a)) as) ++ ")" 
     show (If cv _ c e e' _) = unlines (map show c) ++ "if "++show cv++" {\n" ++ (addIndent . unlines $ map show e) 
                             ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
 
 instance Show Block where
-    show (Fun l as t ks _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as
+    show (Fun l as t ks _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ unpack (showBase a)) as
                                      ,"): ",show t," {\n",addIndent . unlines $ map show ks,"}"]
     show (Bind l t es _p)   = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
 

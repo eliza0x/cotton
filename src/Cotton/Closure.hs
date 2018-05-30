@@ -139,14 +139,14 @@ closure typeEnv stmts = concatMap (W.execWriter . unnest) stmts
     pargsToArgs :: [P.Arg] -> [Var]
     pargsToArgs = map $ \case
         P.Arg name _ p -> #name  @= name
-                       <: #type' @= typeOf name
+                       <: #type @= typeOf name
                        <: #pos   @= Just p 
                        <: nil
 
     argsFromName :: [Text] -> [Var]
     argsFromName = map $ \name ->
                     #name  @= name
-                 <: #type' @= typeOf name
+                 <: #type @= typeOf name
                  <: #pos   @= Nothing
                  <: nil
 
