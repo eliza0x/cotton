@@ -118,7 +118,7 @@ expandReturn knorms = concat <$> mapM er knorms where
         where
         genTerm :: (Var -> [K.KNormal]) -> Val -> [K.KNormal]
         genTerm f = matchField
-                $ #var  @= (f :: Var -> [K.KNormal])
+                $ #var  @= (\(r :: Var) -> if r ^. #name == "_return" then f r else [knorm] :: [K.KNormal])
                <: #int  @= const [knorm]
                <: #str  @= const [knorm]
                <: #bool @= const [knorm]
