@@ -1,0 +1,7 @@
+def add(n: I32, m: I32): I32 {
+    n + m
+}
+
+def main(): I32 {
+    add(10, 20)
+}

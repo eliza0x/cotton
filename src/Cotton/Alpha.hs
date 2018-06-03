@@ -37,7 +37,8 @@ def f():Int {
 
 module Cotton.Alpha where
 
-import qualified Cotton.Parser as P
+import qualified Cotton.Parser    as P
+import qualified Cotton.Type.Type as CT
 
 import Control.Monad
 import Data.Monoid ((<>))
