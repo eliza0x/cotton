@@ -1,5 +1,0 @@
-def main(): Int {
-    def a: Int = 1;
-    a <- a + 20 * 30;
-    a
-}

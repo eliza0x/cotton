@@ -1,0 +1,5 @@
+def main(): I32 {
+    def a: Ref<I32> = ref(1);
+    a <- (unref(a) + 20) * 3;
+    unref(a)
+}

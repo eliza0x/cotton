@@ -1,0 +1,12 @@
+def main(): I32 {
+    def a: I32 {
+        def a: I32 {
+            def a: I32 {
+                1
+            }
+            2
+        }
+        3
+    }
+    a
+}

@@ -1,4 +1,4 @@
-def main(): Int {
+def main(): I32 {
     if 0 == 10 {
         10
     } else {

@@ -1,9 +1,0 @@
-def main(): Int {
-    def a: Int = 1;
-    def b: Int = 1;
-    def c: Int = a + b;
-    def d: Int = a - b;
-    def e: Int = a * b;
-    def f: Int = a / b;
-    f
-}

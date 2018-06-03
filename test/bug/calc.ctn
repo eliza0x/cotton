@@ -1,0 +1,9 @@
+def main(): I32 {
+    def a: I32 = 1;
+    def b: I32 = 1;
+    def c: I32 = a + b;
+    def d: I32 = a - b;
+    def e: I32 = a * b;
+    def f: I32 = a / b;
+    f
+}
