@@ -53,6 +53,7 @@ tokens :-
     "}"                                 { tok (\p _ -> RBrace     (Pos p) )       }
     "["                                 { tok (\p _ -> LBracket   (Pos p) )       }
     "]"                                 { tok (\p _ -> RBracket   (Pos p) )       }
+    ","                                 { tok (\p _ -> Comma      (Pos p) )       }
     ":"                                 { tok (\p _ -> Colon      (Pos p) )       }
     ";"                                 { tok (\p _ -> Semicolon  (Pos p) )       }
     """ $labelchar* """                 { tok (\p s -> Str (StrP (T.pack s) p))   }
