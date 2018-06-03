@@ -20,16 +20,17 @@ description: Please see the README on GitHub at <https://github.com/eliza0x/cott
 
 dependencies:
 - base >= 4.7 && < 5
-- text
-- string-random
-- lens
-- parsers
-- mtl
 - array
 - containers
-- lens
 - extensible
 - free
+- lens
+- lens
+- mtl
+- process
+- string-random
+- text
+- optparse-declarative
 
 library:
   source-dirs: src
@@ -42,6 +43,7 @@ executables:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
+    - -W
     - -Wall
     - -Wincomplete-record-updates
     - -Wincomplete-uni-patterns

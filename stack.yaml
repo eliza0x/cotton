@@ -3,3 +3,5 @@ packages:
 - .
 extra-deps:
 - string-random-0.1.0.0
+- optparse-declarative-0.3.0
+

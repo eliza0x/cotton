@@ -1,6 +1,8 @@
 module Cotton where
 
 import Data.Text (Text)
+import qualified Data.Text.IO as T
+import qualified Control.Monad as C
 
 import Cotton.Parser
 import Cotton.Lexer
@@ -11,39 +13,35 @@ import Cotton.Type
 import Cotton.LLVM
 
 -- | 文字列を投げ込めばいい感じにやってくれる
-compile :: String -> IO Text
-compile sourceCode = do
+compile :: Bool -> String -> IO Text
+compile isDebugMode sourceCode = do
     let token = lexer sourceCode :: [Token]
-    print token
-    putStrLn "\n=========="
-    putStrLn "構文解析\n"
+    (put . show) token
+    put "\n==== 構文解析 ===="
     case parser token of
         Left err -> error $ "error: " ++ show err
         Right ts -> do
-            mapM_ print ts
-            putStrLn "\n=========="
-            putStrLn "Alpha変換\n"
+            mapM_ (put . show) ts
+            put "\n==== Alpha変換 ===="
             let ts' = alpha ts
-            mapM_ print ts'
-            putStrLn "\n=========="
-            putStrLn "型検査\n"
+            mapM_ (put . show) ts'
+            put "\n==== 型検査 ===="
             let typeEnv = typeCheck ts'
-            print typeEnv
-            putStrLn "\n=========="
-            putStrLn "暗黙引数検査\n"
+            (put . show) typeEnv
+            put "\n==== 暗黙引数検査 ===="
             let implicitArgs = inspectImplicitArgs ts'
-            print implicitArgs
-            putStrLn "\n=========="
-            putStrLn "Clojure変換\n"
+            (put . show) implicitArgs
+            put "\n==== Clojure変換 ===="
             let cts = closure typeEnv ts'
-            mapM_ print cts
+            mapM_ (put . show) cts
             let typeEnv' = appendImplicitArgs typeEnv implicitArgs
-            putStrLn "\n=========="
-            putStrLn "K正規化\n"
+            put "\n==== K正規化 ===="
             knorm <- knormalize typeEnv' cts
-            mapM_ print knorm
-            putStrLn "\n=========="
-            putStrLn "LLVM IR\n"
+            mapM_ (put . show) knorm
+            put "\n==== LLVM IR ===="
             llvmir <- knorm2llvmir knorm
-            return $ toText llvmir
-
+            let source = toText llvmir
+            putT source
+            return source
+    where put  t = C.when isDebugMode $ putStrLn t
+          putT t = C.when isDebugMode $ T.putStrLn t
