@@ -1,4 +1,4 @@
-def fact(n: Int): Int {
+def fact(n: I32): I32 {
     if (n == 0) {
         1
     } else {
@@ -6,6 +6,6 @@ def fact(n: Int): Int {
     }
 }
 
-def main(): Int {
+def main(): I32 {
     fact(5)
 }

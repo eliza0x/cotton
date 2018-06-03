@@ -168,24 +168,24 @@ block2LLVM_IR = \case
 
 kNormal2Instruction ::  K.KNormal -> InstGenerator ()
 kNormal2Instruction = \case
-        (K.Op "+"  rd rs rt _) -> emit (Label "; add" ) >> genOpInst   Add (val2Reg rd) (val2Reg rs) (val2Reg rt)
-        (K.Op "-"  rd rs rt _) -> emit (Label "; sub" ) >> genOpInst   Sub (val2Reg rd) (val2Reg rs) (val2Reg rt)
-        (K.Op "*"  rd rs rt _) -> emit (Label "; mul" ) >> genOpInst   Mul (val2Reg rd) (val2Reg rs) (val2Reg rt)
-        (K.Op "/"  rd rs rt _) -> emit (Label "; div" ) >> genOpInst   Div (val2Reg rd) (val2Reg rs) (val2Reg rt)
-        (K.Op "==" rd rs rt _) -> emit (Label "; eqi" ) >> genOpInst   Eqi (val2Reg rd) (val2Reg rs) (val2Reg rt)
-        (K.Op fun  rd rs rt _) -> emit (Label "; fun" ) >> genCallInst fun (val2Reg rd) [val2Reg rs, val2Reg rt]
-        (K.Call rd fun args _) -> emit (Label "; call") >> genCallInst fun (val2Reg rd) (map val2Reg args)
+        (K.Op "+"  rd rs rt _) -> {- emit (Label "; add" ) >> -} genOpInst   Add (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "-"  rd rs rt _) -> {- emit (Label "; sub" ) >> -} genOpInst   Sub (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "*"  rd rs rt _) -> {- emit (Label "; mul" ) >> -} genOpInst   Mul (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "/"  rd rs rt _) -> {- emit (Label "; div" ) >> -} genOpInst   Div (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op "==" rd rs rt _) -> {- emit (Label "; eqi" ) >> -} genOpInst   Eqi (val2Reg rd) (val2Reg rs) (val2Reg rt)
+        (K.Op fun  rd rs rt _) -> {- emit (Label "; fun" ) >> -} genCallInst fun (val2Reg rd) [val2Reg rs, val2Reg rt]
+        (K.Call rd fun args _) -> {- emit (Label "; call") >> -} genCallInst fun (val2Reg rd) (map val2Reg args)
         (K.UnRef   r1 r2 _)    -> do
-            emit $ Label "; 1"
+            -- emit $ Label "; 1"
             emit $ Load  (genReg (nameOf r1) (T.Ref $ typeOf r1)) (genReg (nameOf r2) (T.Ref $ typeOf r2))
 
         (K.Ref   r1 r2 _)      -> do
-            emit $ Label "; 2"
+            -- emit $ Label "; 2"
             allocate (nameOf r1)  (typeOf r1)
             emit $ Store (genReg (nameOf r1) (T.Ref $ typeOf r1)) (genReg (nameOf r2) (T.Ref $ typeOf r2))
 
         (K.Overwrite rd rs _)  -> do
-            emit $ Label "; over"
+            -- emit $ Label "; over"
             [rd', rs'] <- C.replicateM 2 genUniqueText
             emit $ Load  (genReg rd' $ typeOf rd) (genReg (nameOf rd) (T.Ref $ typeOf rd)) 
             emit $ Load  (genReg rs' $ typeOf rs) (genReg (nameOf rs) (T.Ref $ typeOf rs)) 
@@ -195,14 +195,14 @@ kNormal2Instruction = \case
             case (nameOf val1, isVar val2) of
                 -- 前処理によって"_return"はletの左辺にのみ現れる
                 ("_return", _) -> do
-                    emit $ Label "; 3"
+                    -- emit $ Label "; 3"
                     regName <- genUniqueText
                     emit $ Load (genReg regName $ typeOf val2) (genReg (nameOf val2) (T.Ref $ typeOf val2)) 
                     emit $ Ret regName (typeOf val2)
 
                 -- 変数の変数への代入
                 (_, True) -> do
-                    emit $ Label "; 4"
+                    -- emit $ Label "; 4"
                     regName <- genUniqueText
                     allocate (nameOf val1) (typeOf val1)
                     emit $ Load  (genReg regName $ typeOf val2) (genReg (nameOf val2) (T.Ref $ typeOf val2)) 
@@ -210,15 +210,15 @@ kNormal2Instruction = \case
                 
                 -- 即値の変数への代入
                 (_, _) -> do
-                    emit $ Label "; 5"
+                    -- emit $ Label "; 5"
                     allocate (nameOf val1) (typeOf val1)
                     emit $ Store (genReg (nameOf val1) (T.Ref $ typeOf val1)) (val2Reg val2)
 
         (K.If condReg _ cond then' else' _) -> do
-            emit $ Label "; if"
+            -- emit $ Label "; if"
             [t,e,c, crName] <- C.replicateM 4 genUniqueText
             mapM_ kNormal2Instruction cond
-            emit $ Load (genReg crName $ typeOf condReg) (genReg crName (T.Ref $ typeOf condReg))
+            emit $ Load (genReg crName $ typeOf condReg) (genReg (nameOf condReg) (T.Ref $ typeOf condReg))
             emit $ CBr (genReg crName $ typeOf condReg) ("then_"<>t) ("else_"<>e)
             emit $ Label ("then_"<>t)
             mapM_ kNormal2Instruction then'
@@ -292,9 +292,9 @@ toText = T.concat  . map block2Text
         (Br     label')      -> "br label %"<>label'
         (Label  label')      -> "\n"<>label'<>":"
         (Call lbl t rd args')  -> showBase rd<>" = call "<>showT t<>" @"<>lbl<>
-                                     "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" %"<>showBase r) args')<>") "
+                                     "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" "<>showBase r) args')<>") "
         (Call' lbl t args') -> "call "<>showT t<>" @"<>lbl<>
-                                   "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" %"<>showBase r) args')<>") "
+                                   "("<>T.drop 2 (T.concat $ map (\r -> ", "<>showT (typeOf r)<>" "<>showBase r) args')<>") "
         (Ret _ (T.Type "Unit")) -> "ret void"
         (Ret    label' t)    -> "ret "<>showT t<>(if t == T.Type "Unit" then "" else " %"<>label')
 
