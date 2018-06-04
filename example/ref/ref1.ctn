@@ -1,9 +1,9 @@
 def f(n: Ref<I32>): I32 {
-    n <- 10;
+    n <- 100;
     unref(n)
 }
 
 def main(): I32 {
     def n: Ref<I32> = ref(10);
-    f(n)
+    f(n) + unref(n)
 }

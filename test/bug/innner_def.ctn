@@ -1,4 +1,0 @@
-def main(): Unit {
-    def double(n: Int): Int = n * n;
-    print(n)
-}

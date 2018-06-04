@@ -1,0 +1,4 @@
+def main(): I32 {
+    def double(n: I32): I32 = n * n;
+    double(10)
+}
