@@ -1,6 +1,17 @@
 # Cotton
 
-LLVMで動く試作言語
+[![CircleCI](https://circleci.com/gh/eliza0x/cotton/tree/master.svg?style=svg)](https://circleci.com/gh/eliza0x/cotton/tree/master)
+
+LLVMで動く試作言語, 関数型言語を目指しています
+
+# todo
+
+- 型推論
+- ユーザー定義の演算子
+- グローバル変数
+- 高階関数
+- 構造体
+- 直和型
 
 # Syntax
 
