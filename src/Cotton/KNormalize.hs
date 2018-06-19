@@ -25,7 +25,7 @@ def n: Int = n3 + n4;
 
 -}
 
-{-# LANGUAGE DataKinds, TypeOperators, LambdaCase, RecordWildCards, TypeApplications, OverloadedStrings, OverloadedLabels #-}
+{-# LANGUAGE DataKinds, TypeOperators, LambdaCase, RecordWildCards, TypeApplications, OverloadedStrings, OverloadedLabels, DuplicateRecordFields #-}
 {-# OPTIONS_GHC -fno-warn-simplifiable-class-constraints#-}
 
 module Cotton.KNormalize where
@@ -52,8 +52,8 @@ import qualified Text.StringRandom as R
 import Control.Monad
 
 data Block
-    = Fun  { label :: Text, args :: [Val], btype :: T.Type, knorms :: [KNormal], bpos :: Maybe L.AlexPosn }
-    | Bind { label :: Text,                btype :: T.Type, knorms :: [KNormal], bpos :: Maybe L.AlexPosn }
+    = Fun  { label :: Text, args :: [Val], type' :: T.Type, knorms :: [KNormal], pos :: Maybe L.AlexPosn }
+    | Bind { label :: Text,                type' :: T.Type, knorms :: [KNormal], pos :: Maybe L.AlexPosn }
     deriving  Eq
 
 data KNormal

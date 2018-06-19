@@ -121,7 +121,6 @@ val2Reg = matchField
     <: #null @= (\r -> #null # r)
     <: nil
 
-
 addIndent :: String -> String
 addIndent = unlines . map ("\t"++) . lines
 

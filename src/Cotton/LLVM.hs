@@ -153,11 +153,11 @@ block2LLVM_IR = \case
         knorms' <- expandReturn knorms
         (args', header) <- expandArg $ map val2Reg args
         llvmir <- runInstGenerator (map nameOf args) $ mapM kNormal2Instruction knorms'
-        return (Fun label btype args' (header++llvmir), [])
+        return (Fun label type' args' (header++llvmir), [])
     K.Bind{..} -> do 
         knorms' <- expandReturn knorms
         llvmir <- runInstGenerator [] $ mapM kNormal2Instruction knorms'
-        return (Bind label btype (initReg btype), llvmir)
+        return (Bind label type' (initReg type'), llvmir)
     where
     initReg :: T.Type -> Reg
     initReg = \case
@@ -175,7 +175,7 @@ kNormal2Instruction = \case
         (K.Op "==" rd rs rt _) -> {- emit (Label "; eqi" ) >> -} genOpInst   Eqi (val2Reg rd) (val2Reg rs) (val2Reg rt)
         (K.Op fun  rd rs rt _) -> {- emit (Label "; fun" ) >> -} genCallInst fun (val2Reg rd) [val2Reg rs, val2Reg rt]
         (K.Call rd fun args _) -> {- emit (Label "; call") >> -} genCallInst fun (val2Reg rd) (map val2Reg args)
-        (K.UnRef   r1 r2 _)    -> do
+        (K.UnRef   r1 r2 _)    ->
             -- emit $ Label "; 1"
             emit $ Load  (genReg (nameOf r1) (T.Ref $ typeOf r1)) (genReg (nameOf r2) (T.Ref $ typeOf r2))
 
