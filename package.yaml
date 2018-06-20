@@ -30,7 +30,10 @@ dependencies:
 - process
 - string-random
 - text
+- bytestring
 - optparse-declarative
+- llvm-hs >= 6.0.0
+- llvm-hs-pure
 
 library:
   source-dirs: src

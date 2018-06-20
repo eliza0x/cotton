@@ -1,52 +1,54 @@
+{-# LANGUAGE DataKinds, TypeOperators, OverloadedLabels, FlexibleContexts, OverloadedStrings, ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
+
 module Cotton.Stmt where
 
 import qualified Cotton.Lexer as CL
+import Data.Extensible
+import Control.Lens hiding ((:>))
+import Data.Monoid ((<>))
+import Data.Text (Text, pack)
 import Cotton.Type.Type
-import Data.Text (Text, unpack)
+import qualified Data.Text as T
 
 -- | 文
-data Stmt =
-      Bind { label :: Text, type' :: Type, stmt :: [Stmt], pos :: CL.AlexPosn  }
-    | Fun  { label :: Text, args  :: [Arg], type' :: Type, stmt :: [Stmt], pos ::CL.AlexPosn }
-    | ETerm Term
-    deriving Eq
+newtype Stmt = Stmt { stmt :: StmtBase }
+type StmtBase = Variant 
+    '[ "bind"      :> Bind
+     , "function"  :> Fun
+     , "term"      :> Term 
+     ]
 
--- | 式
-data Term
-    = TInt      { num  :: Int,                                         tpos :: CL.AlexPosn } -- 整数
-    | Var       { var  :: Text,                                        tpos :: CL.AlexPosn } -- 名前
-    | TStr      { text :: Text,                                        tpos :: CL.AlexPosn } -- 名前
-    | Overwrite { var  :: Text, term   :: Term,                        tpos :: CL.AlexPosn } -- 変数上書き
-    | Op        { op   :: Text, term   :: Term,   term'   :: Term,     tpos :: CL.AlexPosn } -- 演算子
-    | Call      { var  :: Text, targs  :: [Term],                      tpos :: CL.AlexPosn } -- Call
-    | SemiColon { term :: Term, term'  :: Term, type''' :: Maybe Type, tpos :: CL.AlexPosn } -- 連結
-    | If        { cond :: Term, tstmts :: [Stmt], tstmts' :: [Stmt],   tpos :: CL.AlexPosn } -- if式
-    deriving Eq
+type Arg = Record ('[ "name" :> Text, "type" :> Maybe Type ] ++ Pos)
 
-data Arg = Arg { argName :: Text, type'' :: Maybe Type, apos :: CL.AlexPosn }
-    deriving Eq
+type Bind = Record (
+    '[ "name" :> Text
+     , "type" :> Type
+     , "term" :> Term
+     ] ++ Pos)
 
+type Fun = Record (
+    '[ "name" :> Text
+     , "args"  :> [Arg]
+     , "type"  :> Type
+     , "term"  :> Term
+     ] ++ Pos)
 
-instance Show Term where
-    show (TInt n _)           = show n
-    show (Var l  _)           = unpack l
-    show (TStr t _)           = unpack t
-    show (Op op t t' _)       = show t ++ " " ++ unpack op ++ " " ++ show t'
-    show (Call l  as _)       = unpack l ++ "(" ++ (drop 2 . concat $ map (\a -> ", " ++ show a) as) ++ ")" 
-    show (TInt n _)           = show n
-    show (SemiColon t t' _ _) = show t ++ ";\n" ++ show t'
-    show (If c e e' _)        = "if " ++ show c ++ " {\n" ++ (addIndent . unlines $ map show e) 
-                              ++ "} else {\n" ++ (addIndent . unlines $ map show e') ++ "}"
-    show (Overwrite l t _)    = unpack l ++ " <- " ++ show t
+newtype Term = Term { term :: TermBase }
+type TermBase = Variant
+    '[ "nat"       :> Nat
+     , "var"       :> Var
+     , "str"       :> Str
+     , "call"      :> Call
+     , "if"        :> If
+     , "stmts"     :> [Stmt]
+     ]
 
-instance Show Stmt where
-    show (ETerm t)          = show t
-    show (Bind l t es _p)   = concat ["def ",unpack l,": ",show t," {\n",addIndent . unlines $ map show es,"}"]
-    show (Fun l as t es _p) = concat ["def ",unpack l,"(",drop 2 . concat $ map (\a -> ", " ++ show a) as
-                                     ,"): ",show t," {\n",addIndent . unlines $ map show es,"}"]
+type Nat       = Record ('[ "num"   :> Int                                              ] ++ Pos)
+type Var       = Record ('[ "name"  :> Text                                             ] ++ Pos)
+type Str       = Record ('[ "text"  :> Text                                             ] ++ Pos)
+type Overwrite = Record ('[ "name"  :> Text,   "type"  :> Maybe Type, "term"  :> Term   ] ++ Pos)
+type Call      = Record ('[ "name"   :> Text,   "args"  :> [Term]                        ] ++ Pos)
+type If        = Record ('[ "cond"  :> Term,   "then"  :> [Stmt],     "else"  :> [Stmt] ] ++ Pos)
 
-instance Show Arg where
-    show (Arg a (Just t) _) = unpack a ++ ": " ++ show t
-    show (Arg a Nothing  _) = unpack a
-
-addIndent = unlines . map ("\t"++) . lines
+type Pos = '[ "pos" :> CL.AlexPosn ]

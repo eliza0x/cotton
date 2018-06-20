@@ -82,8 +82,8 @@ Stmts   : Bind Stmts             { fst $1 : $2 }
 Stmts2 :: { [Stmt] }
 Stmts2  : Bind Stmts2            { fst $1 : $2 }
         | Fun  Stmts2            { fst $1 : $2 }
-        | Terms Stmts2           { ETerm (fst $1) : $2 }
-        | Terms                  { [ETerm (fst $1)] }
+        | Terms Stmts2           { term # fst $1 : $2 }
+        | Terms                  { [term # fst $1] }
         | Bind                   {% fail $ "statement must be finish term." ++ show (snd $1) }
         | Fun                    {% fail $ "statement must be finish term." ++ show (snd $1) }
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, FlexibleContexts, TemplateHaskell, LambdaCase #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, TemplateHaskell, LambdaCase, OverloadedLabels, ScopedTypeVariables  #-}
 
 module Cotton.Type where
 
@@ -6,9 +6,9 @@ import Cotton.Stmt
 import qualified Cotton.Stmt as P
 import Cotton.Type.Type
 
-import Debug.Trace
+import Data.Extensible
+import Control.Lens hiding ((#))
 
-import Control.Lens
 import Control.Monad
 import Data.Maybe
 import Data.Text (Text, unpack)
@@ -28,73 +28,67 @@ newtype Env = Env { _typeOf :: Map Text Type }
 makeLenses ''Env
 
 typeCheck :: [Stmt] -> Env
-typeCheck stmts = S.execState (mapM_ typeCheck' stmts) initState
+typeCheck stmts = S.execState (mapM_ typeCheckStmt stmts) preDefined
     where
-    initState = Env $ M.fromList [ ("+",     Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("-",     Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("*",     Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("/",     Func [Type "I32", Type "I32"] (Type "I32"))
-                                 , ("==",    Func [Type "I32", Type "I32"] (Type "Bool"))
-                                 , ("ref",   Func [Type "I32"] (Ref $ Type "I32"))
-                                 , ("unref", Func [Ref $ Type "I32"] (Type "I32"))
-                                 ]
-    typeCheck' :: Stmt -> EnvM Type
-    typeCheck' = \case
-        Bind{..} -> do 
-            updateEnv label type'
-            type'' <- last <$> mapM typeCheck' stmt
-            when (type' /= type'') $ error $ "type error.\n"++show type'++"\n"++show type''
-            return type''
-        Fun{..}  -> do 
-            checkArgs args
-            updateEnv label (Func (map (fromJust . P.type'') args) type') 
-            types <- mapM typeCheck' stmt
-            when (type' /= last types)
-                (error $ "type error.\nactual type: "++show (last types)
-                                ++"\nexpected type: "++show type'
-                                ++"\npos: "++show pos)
-            return $ last types
-        (ETerm term) -> typeCheck'' term
+    preDefined = Env $ M.fromList [ ("+",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                  , ("-",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                  , ("*",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                  , ("/",     Func [Type "I32", Type "I32"] (Type "I32"))
+                                  , ("==",    Func [Type "I32", Type "I32"] (Type "Bool"))
+                                  , ("ref",   Func [Type "I32"] (Ref $ Type "I32"))
+                                  , ("unref", Func [Ref $ Type "I32"] (Type "I32"))
+                                  , ("<-",    Func [Ref $ Type "I32"] (Type "I32"))
+                                  ]
+    typeCheckStmt :: Stmt -> EnvM Type
+    typeCheckStmt (Stmt stmt) = flip matchField stmt $ shrinkAssoc
+        $ #bind @= (\(r :: Bind) -> do
+            updateEnv (r ^. #name) (r ^. #type) 
+            type' <- typeCheckTerm (r ^. #term)
+            when ((r ^. #type) /= type') $ error $ "type error.\n"++show (r ^. #type)++"\n"++show type'
+            return type')
+      <: #function @= (\(r :: Fun) -> do
+            checkArgs (r ^. #args)
+            updateEnv (r ^. #name) (Func (map (fromJust . (^. #type)) $ r ^. #args) (r ^. #type)) 
+            type' <- typeCheckTerm (r ^. #term)
+            when ((r ^. #type) /= type')
+                (error $ "type error."
+                    ++ "\nactual type: "++show type'
+                    ++ "\nexpected type: "++show (r ^. #type)
+                    ++ "\npos: "++show (r ^. #pos))
+            return type')
+      <: #term @= (\(term :: Term) -> typeCheckTerm term)
+      <: nil
         where
-        checkArgs args = forM_ args (\arg -> updateEnv (P.argName arg) (fromJust $ P.type'' arg))
-        updateEnv label type' = do
-            type'' <- uses typeOf (!? label)
+        checkArgs :: [Arg] -> EnvM ()
+        checkArgs args = forM_ args (\arg -> updateEnv (arg ^. #name) (fromJust $ arg ^. #type))
+
+        updateEnv :: Text -> Type -> EnvM ()
+        updateEnv name type' = do
+            type'' <- uses typeOf (!? name)
             when (isJust type'' && fromJust type'' /= type') 
                 $ error "type error."
-            unless (isJust type'') $ typeOf %= M.insert label type'
+            unless (isJust type'') $ typeOf %= M.insert name type'
     
-    typeCheck'' :: Term -> EnvM Type
-    typeCheck'' = \case
-        TInt{..}      -> return $ Type "I32"
-        Var{..}       -> fromMaybe (error $ show var ++ " is not defined") <$> getType var 
-        TStr{..}      -> return $ Type "String"
-        Overwrite{..} -> do
-            type' <- fromMaybe (error $ "this variable is not defined: "++show var) <$> getType var 
-            type'' <- typeCheck'' term
-            when (type' /= Ref type'') $ error ("type error.\n"++show var++": "++show type' ++ "\n"++show term++": "++show type'')
-            return $ Type "Unit"
-        Op{..}        -> do
-            typeTerm  <- typeCheck'' term
-            typeTerm' <- typeCheck'' term'
-            when (typeTerm /= typeTerm') $ error "type error."
-            Func args rettype <- fromMaybe (error $ show op ++ " is not defined") <$> getType op
-            when ([typeTerm, typeTerm'] /= args) $ error "type error."
-            return rettype
-        Call{..}        -> do
-            argTypes <- mapM typeCheck'' targs
-            Func args rettype <- fromMaybe (error "this function is not defined") <$> getType var
-            when (argTypes /= args) $ error "type error."
-            return rettype
-        SemiColon{..}   -> do
-            typeCheck'' term
-            typeCheck'' term'
-        If{..}          -> do
-            condType <- typeCheck'' cond
+    typeCheckTerm :: Term -> EnvM Type
+    typeCheckTerm (Term term) = flip matchField term $ shrinkAssoc
+          $  #nat       @= (\(_ :: Nat) -> return $ Type "I32")
+          <: #var       @= (\(r :: Var) -> fromMaybe (error $ show (r ^. #name) ++ " is not defined") <$> getType (r ^. #name))
+          <: #str       @= (\(_ :: Str) -> return $ Type "String")
+          <: #call      @= (\(r :: Call) -> do
+            argtypes <- mapM typeCheckTerm (r ^. #args)
+            Func argtypes' rettype <- fromMaybe (error "this function is not defined") <$> getType (r ^. #name)
+            when (argtypes /= argtypes') $ error "type error."
+            return rettype)
+          <: #if        @= (\(r :: If) -> do
+            condType <- typeCheckTerm (r ^. #cond)
             when (condType /= Type "Bool") $ error "type error."
-            thenType <- last <$> mapM typeCheck' tstmts
-            elseType <- last <$> mapM typeCheck' tstmts'
+            thenType <- last <$> mapM typeCheckStmt (r ^. #then)
+            elseType <- last <$> mapM typeCheckStmt (r ^. #else)
             when (thenType /= elseType) $ error "type error."
-            return thenType
+            return thenType)
+		  <: #stmts     @= (\(stmts :: [Stmt]) ->
+			last <$> mapM typeCheckStmt stmts)
+          <: nil
         where
         getType var = uses typeOf (!? var)
 

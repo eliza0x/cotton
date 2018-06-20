@@ -3,18 +3,22 @@ module Cotton where
 import Data.Text (Text)
 import qualified Data.Text.IO as T
 import qualified Control.Monad as C
+import qualified Data.ByteString.Char8 as BC8
 
-import Cotton.Parser
+{-
 import Cotton.Lexer
+import Cotton.Parser
 import Cotton.KNormalize
 import Cotton.Closure
 import Cotton.Alpha
 import Cotton.Type
 import Cotton.LLVM
+-}
 
 -- | 文字列を投げ込めばいい感じにやってくれる
-compile :: Bool -> String -> IO Text
+compile :: Bool -> String -> IO BC8.ByteString
 compile isDebugMode sourceCode = do
+	{-
     let token = lexer sourceCode :: [Token]
     (put . show) token
     put "\n==== 構文解析 ===="
@@ -39,9 +43,9 @@ compile isDebugMode sourceCode = do
             knorm <- knormalize typeEnv' cts
             mapM_ (put . show) knorm
             put "\n==== LLVM IR ===="
-            llvmir <- knorm2llvmir knorm
-            let source = toText llvmir
-            putT source
-            return source
+            llvmir <- toLLVM knorm
+            put $ BC8.unpack llvmir
+            return llvmir
+			-}
+			undefined
     where put  t = C.when isDebugMode $ putStrLn t
-          putT t = C.when isDebugMode $ T.putStrLn t
