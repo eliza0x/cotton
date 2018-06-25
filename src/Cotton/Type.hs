@@ -74,6 +74,11 @@ typeCheck stmts = S.execState (mapM_ typeCheckStmt stmts) preDefined
           $  #nat       @= (\(_ :: Nat) -> return $ Type "I32")
           <: #var       @= (\(r :: Var) -> fromMaybe (error $ show (r ^. #name) ++ " is not defined") <$> getType (r ^. #name))
           <: #str       @= (\(_ :: Str) -> return $ Type "String")
+          <: #overwrite @= (\(r :: Overwrite) -> do
+            type' <- fromMaybe (error "this function is not defined") <$> getType (r ^. #name)
+            type'' <- typeCheckTerm (r ^. #term)
+            when (type' /= type'') $ error "type error."
+            return $ Type "Unit")
           <: #call      @= (\(r :: Call) -> do
             argtypes <- mapM typeCheckTerm (r ^. #args)
             Func argtypes' rettype <- fromMaybe (error "this function is not defined") <$> getType (r ^. #name)
@@ -82,11 +87,11 @@ typeCheck stmts = S.execState (mapM_ typeCheckStmt stmts) preDefined
           <: #if        @= (\(r :: If) -> do
             condType <- typeCheckTerm (r ^. #cond)
             when (condType /= Type "Bool") $ error "type error."
-            thenType <- last <$> mapM typeCheckStmt (r ^. #then)
-            elseType <- last <$> mapM typeCheckStmt (r ^. #else)
+            thenType <- typeCheckTerm (r ^. #then)
+            elseType <- typeCheckTerm (r ^. #else)
             when (thenType /= elseType) $ error "type error."
             return thenType)
-		  <: #stmts     @= (\(stmts :: [Stmt]) ->
+          <: #stmts     @= (\(stmts :: [Stmt]) ->
 			last <$> mapM typeCheckStmt stmts)
           <: nil
         where

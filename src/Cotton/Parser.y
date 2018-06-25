@@ -11,12 +11,17 @@ Portability : POSIX
 トークン列を解析して、構文木に変換します。
 
 -}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, TemplateHaskell, LambdaCase, OverloadedLabels, ScopedTypeVariables  #-}
+
 module Cotton.Parser (
     parser,
     Stmt(..),
     Term(..),
     Arg(..),
     ) where
+
+import Data.Extensible
+import Control.Lens ((#))
 
 import Prelude hiding (Num)
 import Data.Text (Text(..), unpack)
@@ -42,6 +47,7 @@ import Cotton.Stmt
 %token
   def       { CL.Def        $$ }
   if        { CL.If         $$ }
+  then      { CL.Then       $$ }
   else      { CL.Else       $$ }
   '<-'      { CL.LArrow     $$ }
   '->'      { CL.RArrow     $$ }
@@ -60,71 +66,29 @@ import Cotton.Stmt
   '}'       { CL.RBrace     $$ }
   '['       { CL.LBracket   $$ }
   ']'       { CL.RBracket   $$ }
-  num       { CL.Num     $$ }
-  op        { CL.Op      $$ }
-  lower     { CL.Lower   $$ }
-  upper     { CL.Upper   $$ }
-  str       { CL.Str     $$ }
+  num       { CL.Num        $$ }
+  op        { CL.Op         $$ }
+  lower     { CL.Lower      $$ }
+  upper     { CL.Upper      $$ }
+  str       { CL.Str        $$ }
 
 %%
 
 -----------------------------------------------------------------------------
 
--- | 文
--- トップレベルに式を書かせない
-Stmts :: { [Stmt] }
-Stmts   : Bind Stmts             { fst $1 : $2 }
-        | Fun  Stmts             { fst $1 : $2 }
-        |                       { [] }
-        | Terms                 {% fail $ "Top-level declaration expected:" ++ (show $ snd $1) }
+Stmts   :: { [Stmt] } 
+Stmts   : Stmt ';' Stmts { $1 : $3 }
+        | Stmt           { [$1] }
+        |                { [] }
 
--- | インナー文
-Stmts2 :: { [Stmt] }
-Stmts2  : Bind Stmts2            { fst $1 : $2 }
-        | Fun  Stmts2            { fst $1 : $2 }
-        | Terms Stmts2           { term # fst $1 : $2 }
-        | Terms                  { [term # fst $1] }
-        | Bind                   {% fail $ "statement must be finish term." ++ show (snd $1) }
-        | Fun                    {% fail $ "statement must be finish term." ++ show (snd $1) }
+Stmt :: { Stmt }
+Stmt   : def Lower ':' Type '=' Term 
+       { Stmt $ (#bind     # (#name @= fst $2                <: #type @= fst $4 <: #term @= $6 <: #pos @= CL.pos $1 <: nil))}
+       | def Lower '(' Args ')' ':' Type '=' Term
+       { Stmt $ (#function # (#name @= fst $2 <: #args @= $4 <: #type @= fst $7 <: #term @= $9 <: #pos @= CL.pos $1 <: nil))}
+       | Term           
+       { Stmt $ #term # $1 }
 
-Bind :: { (Stmt, CL.AlexPosn) }
-Bind    : def Lower ':' Type '=' Term ';'   
-        { (Bind { label = fst $2, type' = fst $4, stmt = [ETerm $ fst $6], pos = CL.pos $1 }, CL.pos $1) }
-        | def Lower ':' Type '{' Stmts2 '}' 
-        { (Bind { label = fst $2, type' = fst $4, stmt = $6,               pos = CL.pos $1 }, CL.pos $1) }
-
-Fun :: { (Stmt, CL.AlexPosn) }
-Fun     : def Lower '(' Args ')' ':' Type '=' Term ';'
-        { (Fun { label = fst $2 , args = $4, type' = fst $7, stmt = [ETerm $ fst $9], pos = CL.pos $1 }, CL.pos $1) }
-        | def Lower '(' Args ')' ':' Type '{' Stmts2 '}'
-        { (Fun { label = fst $2 , args = $4, type' = fst $7, stmt  = $9,        pos = CL.pos $1 }, CL.pos $1) }
-
--- | 式
-Terms   :: { (Term, CL.AlexPosn) } 
-Terms   : Term ';' Terms        { (SemiColon {term = fst $1, term' = fst $3}, snd $1) }
-        | Term                  { (fst $1, snd $1) }
-
-Term   :: { (Term, CL.AlexPosn) } 
-Term    : if Term '{' Stmts2 '}' else '{' Stmts2 '}' 
-                                    { (If {cond = fst $2, tstmts = $4,
-                                    tstmts' = $8, tpos = CL.pos $1 }, CL.pos $1) }
-        | Lower '<-' Term           { (Overwrite (fst $1) (fst $3) (snd $1), snd $1) }
-        | Lower '(' Calls ')'       { (Call { var = fst $1, targs = $3, tpos = snd $1 }, snd $1) }
-        | '(' Term ')'              { (fst $2, snd $2) }
-        | '{' Terms '}'             { (fst $2, snd $2) }
-        | str                       { (TStr (CL.text $1) (CL.pos $1), CL.pos $1) }
-        | Term Op Term              { (Op { op = fst $2, term = fst $1, term' = fst $3, tpos = snd $2 }, snd $1) }
-        | Num                       { (TInt (fst $1) (snd $1), snd $1) }
-        | Lower                     { (Var (fst $1) (snd $1), snd $1) }
-
------------------------------------------------------------------------------
-
--- | 関数呼び出し時の引数リスト
-Calls :: { [Term] }
-Calls   : Term ',' Calls        { fst $1 : $3 }
-        | Term                  { [fst $1] }
-        |                       { [] }
- 
 -- | 関数定義時の引数リスト
 Args :: { [Arg] }
 Args    : Arg ',' Args          { $1 : $3 }
@@ -132,9 +96,29 @@ Args    : Arg ',' Args          { $1 : $3 }
         |                       { [] }
  
 Arg :: { Arg }
-Arg     : Lower ':' Type          { Arg { argName  = fst $1, type'' = Just (fst $3), apos = snd $1} }
-        | Lower                    { Arg { argName  = fst $1, type'' = Nothing,       apos = snd $1} }
+Arg     : Lower ':' Type        { #name @= fst $1 <: #type @= Just (fst $3) <: #pos @= snd $1 <: nil }
+        | Lower                 { #name @= fst $1 <: #type @= Nothing       <: #pos @= snd $1 <: nil }
 
+-----------------------------------------------------------------------------
+
+Term   :: { Term } 
+Term    : if Term then Term else Term 
+                              { Term $ (#if # (#cond @= $2 <: #then @= $4 <: #else @= $6 <: #pos @= CL.pos $1 <: nil)) }
+        | Lower '<-' Term     { Term $ #overwrite # (#name @= fst $1 <: #type @= Nothing <: #term @= $3 <: #pos @= CL.pos $2 <: nil) }
+        | Lower '(' Calls ')' { Term $ #call # (#name @= fst $1 <: #args @= $3 <: #pos @= snd $1 <: nil) }
+        | '(' Term ')'        { $2 }
+        | '{' Stmts '}'       { Term $ #stmts # $2 }
+        | str                 { Term $ #str # (#text @= CL.text $1 <: #pos @= CL.pos $1 <: nil) }
+        | Term Op Term        { Term $ (#call # (#name @= fst $2 <: #args @= [$1, $3] <: #pos @= snd $2 <: nil)) }
+        | Num                 { Term $ (#nat # (#num  @= fst $1 <: #pos @= snd $1 <: nil)) }
+        | Lower               { Term $ (#var # (#name @= fst $1 <: #pos @= snd $1 <: nil)) }
+
+-- | 関数呼び出し時の引数リスト
+Calls :: { [Term] }
+Calls   : Term ',' Calls        { $1 : $3 }
+        | Term                  { [$1] }
+        |                       { [] }
+ 
 -----------------------------------------------------------------------------
 
 -- | 整数

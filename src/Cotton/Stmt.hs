@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds, TypeOperators, OverloadedLabels, FlexibleContexts, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE DataKinds, TypeOperators, OverloadedLabels, FlexibleContexts, ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-unticked-promoted-constructors #-}
 
 module Cotton.Stmt where
@@ -39,16 +39,17 @@ type TermBase = Variant
     '[ "nat"       :> Nat
      , "var"       :> Var
      , "str"       :> Str
+     , "overwrite" :> Overwrite
      , "call"      :> Call
      , "if"        :> If
      , "stmts"     :> [Stmt]
      ]
 
-type Nat       = Record ('[ "num"   :> Int                                              ] ++ Pos)
-type Var       = Record ('[ "name"  :> Text                                             ] ++ Pos)
-type Str       = Record ('[ "text"  :> Text                                             ] ++ Pos)
-type Overwrite = Record ('[ "name"  :> Text,   "type"  :> Maybe Type, "term"  :> Term   ] ++ Pos)
-type Call      = Record ('[ "name"   :> Text,   "args"  :> [Term]                        ] ++ Pos)
-type If        = Record ('[ "cond"  :> Term,   "then"  :> [Stmt],     "else"  :> [Stmt] ] ++ Pos)
+type Nat       = Record ('[ "num"   :> Int                                          ] ++ Pos)
+type Var       = Record ('[ "name"  :> Text                                         ] ++ Pos)
+type Str       = Record ('[ "text"  :> Text                                         ] ++ Pos)
+type Overwrite = Record ('[ "name"  :> Text, "type"  :> Maybe Type, "term"  :> Term ] ++ Pos)
+type Call      = Record ('[ "name"  :> Text, "args"  :> [Term]                      ] ++ Pos)
+type If        = Record ('[ "cond"  :> Term, "then"  :> Term,       "else"  :> Term ] ++ Pos)
 
 type Pos = '[ "pos" :> CL.AlexPosn ]

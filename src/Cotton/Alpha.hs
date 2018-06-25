@@ -114,7 +114,7 @@ alpha stmts = map (\stmt -> S.evalState (alpha' "" stmt) initState) stmts
             valM <- uses rewrittenVarName (M.lookup key)
             case valM of
                 Just val -> return val
-                Nothing  -> do
-                    error $ show key ++ " is not found."
-                    error . show . _rewrittenVarName <$> S.get  -- ここにmonad failを入れたい
+                Nothing  -> 
+                    error $ show key ++ " is not found.\n"
+                         ++ show . _rewrittenVarName <$> S.get  -- ここにmonad failを入れたい
 

@@ -40,6 +40,7 @@ tokens :-
     "#".*                               ;
     "def"                               { tok (\p _ -> Def        (Pos p) )       }
     "if"                                { tok (\p _ -> If         (Pos p) )       }
+    "then"                              { tok (\p _ -> Then       (Pos p) )       }
     "else"                              { tok (\p _ -> Else       (Pos p) )       }
     "<-"                                { tok (\p _ -> LArrow     (Pos p) )       }
     "->"                                { tok (\p _ -> RArrow     (Pos p) )       }
@@ -68,6 +69,7 @@ tok f p s = f p s
 data Token
     = Def               TokenData
     | If                TokenData
+    | Then              TokenData
     | Else              TokenData
     | LArrow            TokenData
     | RArrow            TokenData
